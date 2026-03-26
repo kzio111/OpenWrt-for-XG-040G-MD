@@ -117,7 +117,7 @@ jobs:
       - name: Download packages
         working-directory: ./openwrt
         run: |
-          make download -j8
+          make download -j4
           find dl -size -1024c -delete
 
       - name: Compile OpenWrt firmware
