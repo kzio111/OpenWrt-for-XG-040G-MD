@@ -29,7 +29,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -49,8 +49,11 @@ jobs:
           sudo apt update
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
+          # 检查 mkbootimg 是否存在 (保留你的原始逻辑)
           if command -v mkbootimg >/dev/null 2>&1; then
             echo "mkbootimg found at: $(command -v mkbootimg)"
+          else
+            echo "❌ mkbootimg not found!"
           fi
           [[ -n "$TZ" ]] && sudo timedatectl set-timezone "$TZ"
 
@@ -59,11 +62,11 @@ jobs:
           python3 -m pip install --upgrade pip setuptools wheel
           python3 -m pip install Unidecode
 
-      - name: Clone OpenWrt source code and apply XG-040G-MD patch files
+      - name: Clone OpenWrt and apply XG-040G-MD patch files
         run: |
           git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" openwrt
           cd patch
-          # 强制创建目标目录
+          # 强制创建所有必要的目标目录 (保留并增强了你的 mkdir 逻辑)
           mkdir -p ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/
           mkdir -p ../openwrt/target/linux/airoha/image/
           mkdir -p ../openwrt/target/linux/airoha/dts/
@@ -71,7 +74,7 @@ jobs:
           mkdir -p ../openwrt/target/linux/mediatek/patches-6.12/
           mkdir -p ../openwrt/target/linux/generic/pending-6.12/
 
-          # 复制文件并验证
+          # 复制核心文件
           [ -e airoha/01_leds ] && cp -f airoha/01_leds ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/01_leds
           [ -e airoha/02_network ] && cp -f airoha/02_network ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
           [ -e airoha/an7581.mk ] && cp -f airoha/an7581.mk ../openwrt/target/linux/airoha/image/an7581.mk
@@ -79,10 +82,11 @@ jobs:
           [ -e airoha/an7581.dtsi ] && cp -f airoha/an7581.dtsi ../openwrt/target/linux/airoha/dts/an7581.dtsi
 
           # 安全复制补丁
-          find airoha/patches-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/airoha/patches-6.12/ \; 2>/dev/null || true
-          find mediatek/patches-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/mediatek/patches-6.12/ \; 2>/dev/null || true
-          find generic/pending-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/generic/pending-6.12/ \; 2>/dev/null || true
-          echo "✅ 补丁与 DTS 注入完成"
+          if [ -d "airoha/patches-6.12" ]; then
+            find airoha/patches-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/airoha/patches-6.12/ \;
+          fi
+          [ -d "mediatek/patches-6.12" ] && find mediatek/patches-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/mediatek/patches-6.12/ \;
+          [ -d "generic/pending-6.12" ] && find generic/pending-6.12 -name "*.patch" -exec cp -f {} ../openwrt/target/linux/generic/pending-6.12/ \;
 
       - name: Update & Install feeds
         working-directory: ./openwrt
@@ -91,12 +95,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a -f
 
-      - name: Run DIY Script (Plugins/devmem/SSH)
+      - name: Run DIY Script (Plugins & devmem fix)
         working-directory: ./openwrt
         run: |
-          # 先放入你的基础 config
+          # 1. 载入你的基础 config
           cp -fv "../${CONFIG_FILE}" .config
-          # 给予权限并运行脚本追加自定义配置
+          # 2. 运行脚本进行“二次装修” (关键: 解决 devmem 和插件拉取)
           chmod +x ../diy.sh
           ../diy.sh
 
@@ -122,7 +126,7 @@ jobs:
       - name: Download packages
         working-directory: ./openwrt
         run: |
-          make download -j4 V=s
+          make download -j8
           find dl -size -1024c -delete
 
       - name: Compile OpenWrt firmware
@@ -134,12 +138,13 @@ jobs:
           else
             make -j$(nproc)
           fi
+          # 提取设备名称用于 Release 文件命名
           DEVICE_NAME=$(grep -o 'CONFIG_TARGET.*DEVICE_[^=]*=y' .config | head -1 | sed 's/.*DEVICE_\(.*\)=y/\1/')
-          [[ -n "$DEVICE_NAME" ] && echo "DEVICE_NAME=_${DEVICE_NAME}" >> $GITHUB_ENV
+          [[ -n "$DEVICE_NAME" ]] && echo "DEVICE_NAME=_${DEVICE_NAME}" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Prepare firmware artifacts path
+      - name: Prepare firmware artifacts
         id: organize
         if: env.UPLOAD_FIRMWARE == 'true'
         run: |
@@ -155,20 +160,17 @@ jobs:
           name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}/*
 
-      - name: Generate release tag and notes
+      - name: Generate release tag
         id: tag
         if: env.UPLOAD_RELEASE == 'true'
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           cat <<EOF > release.txt
-          🚀 OpenWrt firmware for XG-040G-MD
-          ----------------------
-          设备型号: XG-040G-MD
+          🚀 XG-040G-MD 固件发布
           构建时间: $(date +"%Y-%m-%d %H:%M")
-          内置组件: TurboAcc, Airoha NPU Status
-          调试工具: devmem 开启
-          SSH状态: 默认开启 (Port 22)
-          源码仓库: $REPO_URL ($REPO_BRANCH)
+          内核版本: 6.12.X
+          内置插件: TurboAcc, Airoha NPU
+          调试工具: devmem (全开)
           EOF
 
       - name: Publish GitHub Release
