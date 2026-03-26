@@ -116,17 +116,20 @@ jobs:
         id: compile
         run: |
           cd openwrt
-          # 1. 提取设备名称（用于后续打包命名）
+          # 1. 提取设备名和日期（保持你之前的逻辑）
           DEVICE_NAME=$(grep -o 'CONFIG_TARGET.*DEVICE_[^=]*=y' .config | head -1 | sed 's/.*DEVICE_\(.*\)=y/\1/')
           [[ -n "$DEVICE_NAME" ]] && echo "DEVICE_NAME=_${DEVICE_NAME}" >> $GITHUB_ENV
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+          # 2. 核心逻辑：先尝试全速编译，如果失败则回退到单线程详细报错模式
+          # -j$(nproc) 会自动调用所有可用的 CPU 核心
+          echo "开始全速编译..."
+          make -j$(nproc) || {
+            echo "❌ 编译过程中断，正在进入单线程诊断模式..."
+            make -j1 V=s
+            exit 1
+          }
           
-          # 2. 开始正式编译
-          # 使用 -j$(nproc) 可以调用全部 CPU 核心，比 -j1 快得多
-          # 如果之前 kernel-headers 报错，建议先用 -j1 找错，稳定后再换回多核
-          make -j$(nproc) || make -j1 V=s
-          
-          # 3. 设置状态输出
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Prepare firmware artifacts
