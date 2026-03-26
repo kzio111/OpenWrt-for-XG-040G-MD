@@ -20,33 +20,51 @@ if [ -f package/luci-app-airoha-npu/Makefile ]; then
     sed -i 's/\.\.\/\.\.\/luci\.mk/$(TOPDIR)\/feeds\/luci\/luci.mk/g' package/luci-app-airoha-npu/Makefile
 fi
 
-# 4. 强制开启内核与硬件相关依赖 (针对 Airoha NPU)
-echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
-echo "CONFIG_BUSYBOX_CONFIG_DEVMEM=y" >> .config
-echo "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y" >> .config
-echo "CONFIG_KERNEL_DEVMEM=y" >> .config
+# 4. 基础功能与内核依赖 (针对 Airoha 平台)
+cat <<EOF >> .config
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_DEVMEM=y
+CONFIG_BUSYBOX_DEFAULT_DEVMEM=y
+CONFIG_KERNEL_DEVMEM=y
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-app-natmap=y
+EOF
 
-# 5. 【新增】自动勾选 UPnP 和 Natmap 插件
-echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-natmap=y" >> .config
-# 强制添加中文语言包
-echo 'CONFIG_LUCI_LANG_zh_Hans=y' >> .config
+# 5. 中文语言包配置
+echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+# 自动选中所有已选插件的中文语言包
+sed -i 's/CONFIG_PACKAGE_luci-i18n-.*-en=y/# CONFIG_PACKAGE_luci-i18n-.*-en is not set/g' .config
+cat <<EOF >> .config
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-turboacc-zh-cn=y
+EOF
 
-# 6. 【进阶】设置 UPnP 和 Natmap 默认开启逻辑 (修改默认配置文件)
-# 创建默认开启的脚本，在固件第一次启动时生效
+# 6. 锁定默认语言为中文 (开机即中文)
+if [ -f feeds/luci/modules/luci-base/root/etc/config/luci ]; then
+    sed -i 's/option lang auto/option lang zh_hans/g' feeds/luci/modules/luci-base/root/etc/config/luci
+fi
+
+# 7. 设置默认启动/关闭逻辑 (UCI Defaults)
 mkdir -p files/etc/uci-defaults
 cat <<EOF > files/etc/uci-defaults/99-custom-settings
 #!/bin/sh
 
-# 默认启用 UPnP
-uci set upnpd.config.enabled='1'
-uci commit upnpd
-
-# 如果需要默认开启 TurboAcc 的 HWNAT (配合 NPU)
+# 【默认开启】TurboAcc 硬件加速 (配合 NPU)
 uci set turboacc.config.hw_flow_offload='1'
 uci commit turboacc
+
+# 【默认关闭】UPnP
+uci set upnpd.config.enabled='0'
+uci commit upnpd
+
+# 【默认关闭】Natmap (确保配置项存在时关闭)
+if uci get natmap.config >/dev/null 2>&1; then
+    uci set natmap.config.enabled='0'
+    uci commit natmap
+fi
 
 exit 0
 EOF
 
-echo "✅ DIY 脚本整合完毕：TurboAcc、NPU、UPnP、Natmap 已全部就绪。"
+echo "✅ DIY 脚本调整完毕：中文环境已锁定，TurboAcc 默认开启，UPnP/Natmap 默认关闭。"
