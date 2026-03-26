@@ -162,6 +162,9 @@
 
 		#power-domain-cells = <0>;
 		#clock-cells = <0>;
+ reg = <0x0 0x1fa20000 0x0 0x2c0>, <0x0 0x1efbe000 0x0 0x800>;
+
+                reg-names = "chip-scu", "mcucfg";
 	};
 
 	cpu_opp_table: opp-table {
