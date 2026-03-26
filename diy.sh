@@ -29,6 +29,8 @@ echo "CONFIG_KERNEL_DEVMEM=y" >> .config
 # 5. 【新增】自动勾选 UPnP 和 Natmap 插件
 echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-natmap=y" >> .config
+# 强制添加中文语言包
+echo 'CONFIG_LUCI_LANG_zh_Hans=y' >> .config
 
 # 6. 【进阶】设置 UPnP 和 Natmap 默认开启逻辑 (修改默认配置文件)
 # 创建默认开启的脚本，在固件第一次启动时生效
