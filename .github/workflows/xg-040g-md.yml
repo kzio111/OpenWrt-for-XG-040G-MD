@@ -70,6 +70,7 @@ jobs:
           [ -e airoha/02_network ] && cp -f airoha/02_network ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
           [ -e airoha/an7581.mk ] && cp -f airoha/an7581.mk ../openwrt/target/linux/airoha/image/an7581.mk
           [ -e airoha/an7581-nokia_xg-040g-md.dts ] && cp -f airoha/an7581-nokia_xg-040g-md.dts ../openwrt/target/linux/airoha/dts/an7581-nokia_xg-040g-md.dts
+          [ -e airoha/an7581.dtsi ] && cp -f airoha/an7581.dtsi ../openwrt/target/linux/airoha/dts/an7581.dtsi
           [ -d "airoha/patches-6.12" ] && cp -f airoha/patches-6.12/*.patch ../openwrt/target/linux/airoha/patches-6.12/
           [ -d "mediatek/patches-6.12" ] && cp -f mediatek/patches-6.12/*.patch ../openwrt/target/linux/mediatek/patches-6.12/
           [ -d "generic/pending-6.12" ] && cp -f generic/pending-6.12/*.patch ../openwrt/target/linux/generic/pending-6.12/
