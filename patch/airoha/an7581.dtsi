@@ -60,6 +60,7 @@
 			no-map;
 			reg = <0x0 0x8c010000 0x0 0x10000>;
 		};
+};
 
 	psci {
 		compatible = "arm,psci-1.0";
