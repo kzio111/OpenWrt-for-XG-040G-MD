@@ -35,26 +35,29 @@ fi
 make defconfig
 
 # =========================================================
-# 5. 【暴力修复】解决 CPU 频率 N/A 的关键 (绕过 menuconfig)
+# 5. 【核心修复】解决 Busybox [=m] 降级及 CPU 频率 N/A 问题
 # =========================================================
-# A. 物理注入内核驱动开关 (直接改内核模板)
+# A. 强制把 Busybox 设为内置 (解决 Depends on [=m] 导致的权限失效)
+add_config "CONFIG_PACKAGE_busybox=y"
+add_config "CONFIG_PACKAGE_busybox-selinux=y"
+add_config "CONFIG_BUSYBOX_CUSTOM=y"
+
+# B. 强行开启 devmem 及其默认权限 (解决网页显示 N/A)
+add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
+add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
+
+# C. 解除内核安全锁 (物理注入权限，让 devmem 读得到数)
+add_config "CONFIG_STRICT_DEVMEM=n"
+add_config "CONFIG_IO_STRICT_DEVMEM=n"
+add_config "CONFIG_KERNEL_DEVMEM=y"
+
+# D. 物理注入内核驱动开关 (直接改 airoha 架构的内核模板)
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_STAT=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_GOV_PERFORMANCE=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_ARM_AIROHA_CPUFREQ=y' {}
 
-# B. 强制开启 Busybox 工具链与权限 (解决截图里选不上的问题)
-add_config "CONFIG_BUSYBOX_CUSTOM=y"
-add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
-add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
-add_config "CONFIG_PACKAGE_busybox-selinux=y"
-
-# C. 解除内核安全锁 (没这个权限 devmem 读不到数)
-add_config "CONFIG_STRICT_DEVMEM=n"
-add_config "CONFIG_IO_STRICT_DEVMEM=n"
-add_config "CONFIG_KERNEL_DEVMEM=y"
-
-# D. 补齐调频内核模块
+# E. 补齐调频内核模块
 add_config "CONFIG_PACKAGE_kmod-cpufreq-dt=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-stats=y"
 
@@ -104,4 +107,4 @@ chmod +x files/etc/uci-defaults/99-custom-settings
 # =========================================================
 make oldconfig
 
-echo "✅ [SUCCESS] N/A 修复、网络插件、中文包已全部物理锁定。"
+echo "✅ [SUCCESS] 依赖项已强制物理锁定，Busybox 已设为内置，N/A 问题已底层修复。"
