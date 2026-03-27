@@ -43,11 +43,24 @@ fi
 rm -rf package/luci-app-turboacc
 rm -rf package/turboacc-libs
 
-# 使用 curl 下载并直接执行
-echo "正在执行 TurboAcc 一键集成脚本..."
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh > add_turboacc.sh
-chmod +x add_turboacc.sh
-./add_turboacc.sh --no-sfe || echo "警告：脚本执行返回了非零状态，尝试继续编译..."
+# 改用 git clone 拉取 TurboAcc 插件源码（替代远程脚本）
+echo "正在从 GitHub 克隆 TurboAcc 插件..."
+# 克隆整个仓库的 luci 分支到临时目录
+git clone --depth=1 -b luci https://github.com/chenmozhijin/turboacc.git package/turboacc-temp
+if [ $? -eq 0 ]; then
+    # 移动 luci-app-turboacc 到 package/
+    mv package/turboacc-temp/luci-app-turboacc package/
+    # 如果存在 turboacc-libs 依赖目录也一并移动
+    if [ -d "package/turboacc-temp/turboacc-libs" ]; then
+        mv package/turboacc-temp/turboacc-libs package/
+    fi
+    # 清理临时目录
+    rm -rf package/turboacc-temp
+    echo "✅ [SUCCESS] TurboAcc 插件已就绪"
+else
+    echo "❌ [ERROR] 克隆 TurboAcc 仓库失败，请检查网络或仓库地址"
+    exit 1
+fi
 
 # 检查关键目录是否真的生成了
 if [ -d "package/luci-app-turboacc" ] || [ -d "package/lean/luci-app-turboacc" ]; then
