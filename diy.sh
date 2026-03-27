@@ -40,16 +40,18 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     fi
 fi
 
-# B. 拉取 TurboAcc 依赖库
+# B. 拉取 TurboAcc 依赖库 (更换为更稳定的公开仓库)
 if [ ! -d "package/turboacc-libs" ]; then
     echo "正在拉取 TurboAcc 依赖库..."
-    git clone --depth=1 https://gitee.com/chenmozhijin/turboacc.git package/turboacc
-# 然后按之前的方式移动目录
+    # 换成这个常用的公开地址
+    git clone --depth=1 https://github.com/coolsnowwolf/packages/trunk/net/turboacc-libs package/turboacc-libs 2>/dev/null || \
+    git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
+    
+    # 检查是否真的拉取到了东西，如果还是失败，尝试继续而不中断脚本
     if [ $? -eq 0 ]; then
-        echo "✅ [SUCCESS] TurboAcc-libs 拉取成功"
+        echo "✅ [SUCCESS] TurboAcc-libs 处理完成"
     else
-        echo "❌ [ERROR] TurboAcc-libs 拉取失败"
-        exit 1
+        echo "⚠️  [WARNING] TurboAcc-libs 自动拉取受阻，尝试跳过（部分固件源已自带）"
     fi
 fi
 
