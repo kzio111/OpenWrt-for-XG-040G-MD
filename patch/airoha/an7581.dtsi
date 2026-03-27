@@ -41,24 +41,18 @@
 		};
 
 		npu_pkt: npu-pkt@8a000000 {
-			no-map;
-			reg = <0x0 0x8a000000 0x0 0x1000000>;
-		};
+            no-map;
+            reg = <0x0 0x8a000000 0x0 0x1000000>;
+        };
 
-		npu_txpkt: npu-txpkt@8b000000 {
-			no-map;
-			reg = <0x0 0x8b000000 0x0 0x1000000>;
-		};
+        npu_txpkt: npu-txpkt@8b000000 {
+            no-map;
+            reg = <0x0 0x8b000000 0x0 0x1000000>;
+        };
 
-		npu_txbufid: npu-txbufid@8c000000 {
-			no-map;
-			reg = <0x0 0x8c000000 0x0 0x6800>;
-		};
-
-		/* 把它缩减到 64KB (0x10000)，地址紧跟在后面 */
-		npu_ba: npu-ba@8c010000 {
-			no-map;
-			reg = <0x0 0x8c010000 0x0 0x10000>;
+        npu_txbufid: npu-txbufid@8c000000 {
+            no-map;
+            reg = <0x0 0x8c000000 0x0 0x6800>;
 		};
 };
 
@@ -797,10 +791,10 @@
 				     <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
 			memory-region = <&npu_binary>, <&npu_pkt>, <&npu_txpkt>,
-					<&npu_txbufid>, <&npu_ba>;
+					<&npu_txbufid>;
 			memory-region-names = "binary", "pkt", "tx-pkt",
-					      "tx-bufid", "ba";
-			status = "disabled";
+					      "tx-bufid";
+			status = "okay";
 		};
 
 		eth: ethernet@1fb50000 {
