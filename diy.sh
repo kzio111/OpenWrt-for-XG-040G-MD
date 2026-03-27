@@ -43,7 +43,8 @@ fi
 # B. 拉取 TurboAcc 依赖库
 if [ ! -d "package/turboacc-libs" ]; then
     echo "正在拉取 TurboAcc 依赖库..."
-    git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
+    git clone --depth=1 https://gitee.com/chenmozhijin/turboacc.git package/turboacc
+# 然后按之前的方式移动目录
     if [ $? -eq 0 ]; then
         echo "✅ [SUCCESS] TurboAcc-libs 拉取成功"
     else
