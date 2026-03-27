@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 辅助函数：强力替换/添加 .config 配置 (增加强制清除逻辑)
+# 辅助函数：强力替换/添加 .config 配置
 # =========================================================
 add_config() {
     local key=$(echo "$1" | cut -d'=' -f1)
@@ -25,7 +25,7 @@ if [ ! -d "package/luci-app-turboacc" ]; then
     rm -f add_turboacc.sh
 fi
 
-# 4. 拉取 Airoha NPU 插件并修复
+# 4. 拉取 Airoha NPU 插件并修复 Makefile 路径
 if [ ! -d "package/luci-app-airoha-npu" ]; then
     git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu
 fi
@@ -41,86 +41,81 @@ fi
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 
-# 7. 生成基础配置
+# 7. 生成基础配置 (必须在 add_config 之前做，否则会被重置)
 make defconfig
 
 # =========================================================
-# 8. 【核心修复】解除内核限制，解决 N/A 问题
+# 8. 【核心修复】解决 N/A 的“暴力”权限解锁
 # =========================================================
-# 必须关闭严格内存访问，否则 devmem 无法读取 PLL 寄存器
-add_config "CONFIG_STRICT_DEVMEM=n"
-add_config "CONFIG_IO_STRICT_DEVMEM=n"
+# 你截图中没选上的就在这里：强制 Busybox 和内核全开权限
+add_config "CONFIG_BUSYBOX_CUSTOM=y"
+add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
+add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"  # 强制补上你截图里没选上的那个
 add_config "CONFIG_KERNEL_DEVMEM=y"
+add_config "CONFIG_STRICT_DEVMEM=n"           # 关键：关闭内核严格内存保护
+add_config "CONFIG_IO_STRICT_DEVMEM=n"        # 关键：关闭 I/O 严格限制
 
-# 补全 Airoha 调频驱动依赖
+# 补齐 Airoha 调频驱动 (解决频率显示前提)
 add_config "CONFIG_PACKAGE_kmod-cpufreq-dt=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-stats=y"
 add_config "CONFIG_ARM_AIROHA_CPUFREQ=y"
 
-# 强制开启 Busybox 的 devmem 工具
-add_config "CONFIG_BUSYBOX_CUSTOM=y"
-add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
-add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
-
 # =========================================================
-# 9. 【核心修复】强制中文包及网络插件
+# 9. 【网络与功能】补全 UPnP, Natmap, zRAM, TurboAcc
 # =========================================================
-# 解决中文包丢失：必须勾选 Hans 定义
-add_config "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-natmap-zh-cn=y"
-add_config "CONFIG_LUCI_LANG_zh_Hans=y"
-
-# 网络插件补全
+add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
+add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
 add_config "CONFIG_PACKAGE_luci-app-upnp=y"
 add_config "CONFIG_PACKAGE_luci-app-natmap=y"
 add_config "CONFIG_PACKAGE_natmap=y"
-add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
-add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
-
-# =========================================================
-# 10. zRAM 与 主题配置
-# =========================================================
 add_config "CONFIG_PACKAGE_kmod-zram=y"
 add_config "CONFIG_PACKAGE_zram-swap=y"
+add_config "CONFIG_PACKAGE_coremark=y"
+
+# =========================================================
+# 10. 【本地化与主题】解决中文包丢失
+# =========================================================
+add_config "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
+add_config "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y"
+add_config "CONFIG_PACKAGE_luci-i18n-natmap-zh-cn=y"
+add_config "CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y"
+add_config "CONFIG_LUCI_LANG_zh_Hans=y"
 add_config "CONFIG_PACKAGE_luci-theme-aurora=y"
 add_config "CONFIG_PACKAGE_luci-app-aurora-config=y"
 
-# 强制覆盖全局主题/语言变量
+# 强制覆盖全局变量
 sed -i 's/^CONFIG_LUCI_THEME=.*/CONFIG_LUCI_THEME=aurora/' .config || echo "CONFIG_LUCI_THEME=aurora" >> .config
 sed -i 's/^CONFIG_LUCI_LANG=.*/CONFIG_LUCI_LANG=zh-cn/' .config || echo "CONFIG_LUCI_LANG=zh-cn" >> .config
 
 # =========================================================
-# 11. 运行时自动化配置
+# 11. 运行时自动化配置 (uci-defaults)
 # =========================================================
 mkdir -p files/etc/uci-defaults
 cat <<'EOF' > files/etc/uci-defaults/99-custom-settings
 #!/bin/sh
 
-# 1. 强制切换中文
+# 1. 强制切换中文和主题
 uci set luci.main.lang='zh_cn'
+uci set luci.main.theme='aurora'
 uci commit luci
 
-# 2. 默认开启 TurboAcc 硬件分流
+# 2. 默认开启 TurboAcc 硬件加速 (适配 NPU)
 uci set turboacc.config.hw_flow_offload='1'
 uci commit turboacc
 
-# 3. 时区设置
+# 3. zRAM 启用
+[ -x "/etc/init.d/zram" ] && /etc/init.d/zram enable
+
+# 4. 时区上海
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].timezone='CST-8'
 uci commit system
-
-# 4. zRAM 启用
-if [ -x "/etc/init.d/zram" ]; then
-    /etc/init.d/zram enable
-fi
 
 exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
-# 12. 最终同步依赖
+# 12. 最终补全依赖
 make oldconfig
 
-echo "✅ [SUCCESS] N/A 权限已解锁，zRAM/UPnP/Natmap 已就绪，中文包已锁定。"
+echo "✅ [SUCCESS] N/A 权限已暴力解锁，中文包已强行锁定，zRAM/网络插件已就绪。"
