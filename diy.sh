@@ -40,35 +40,28 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     fi
 fi
 
-# B. 拉取 TurboAcc 依赖库 (更换为更稳定的公开仓库)
-if [ ! -d "package/turboacc-libs" ]; then
-    echo "正在拉取 TurboAcc 依赖库..."
-    # 换成这个常用的公开地址
-    git clone --depth=1 https://github.com/coolsnowwolf/packages/trunk/net/turboacc-libs package/turboacc-libs 2>/dev/null || \
-    git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
-    
-    # 检查是否真的拉取到了东西，如果还是失败，尝试继续而不中断脚本
-    if [ $? -eq 0 ]; then
-        echo "✅ [SUCCESS] TurboAcc-libs 处理完成"
-    else
-        echo "⚠️  [WARNING] TurboAcc-libs 自动拉取受阻，尝试跳过（部分固件源已自带）"
-    fi
-fi
-
-# C. 拉取 TurboAcc 主插件
+# B. 拉取 TurboAcc 依赖库与主插件 (从全能插件源提取)
 if [ ! -d "package/luci-app-turboacc" ]; then
-    echo "正在安装 TurboAcc 主插件..."
-    curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
-    if [ $? -eq 0 ]; then
-        bash add_turboacc.sh --no-sfe
-        rm -f add_turboacc.sh
-        echo "✅ [SUCCESS] TurboAcc 插件安装成功"
+    echo "正在从整合源拉取 TurboAcc 及其依赖..."
+    # 拉取全能插件包到临时目录
+    git clone --depth=1 https://github.com/kenzok8/openwrt-packages.git package/temp_pkgs
+    
+    # 提取主插件
+    mv package/temp_pkgs/luci-app-turboacc package/ 2>/dev/null
+    # 提取核心依赖库 (这就是你缺的 Libs)
+    mv package/temp_pkgs/turboacc-libs package/ 2>/dev/null
+    
+    # 清理垃圾
+    rm -rf package/temp_pkgs
+    
+    # 检查核心文件是否存在
+    if [ -d "package/luci-app-turboacc" ] && [ -d "package/turboacc-libs" ]; then
+        echo "✅ [SUCCESS] TurboAcc 组件(含Libs)全部就绪"
     else
-        echo "❌ [ERROR] TurboAcc 脚本下载失败"
+        echo "❌ [ERROR] TurboAcc 组件提取失败，请检查源地址"
         exit 1
     fi
 fi
-
 # D. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
