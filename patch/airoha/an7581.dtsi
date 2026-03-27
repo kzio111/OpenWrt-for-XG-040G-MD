@@ -41,24 +41,25 @@
 		};
 
 		npu_pkt: npu-pkt@8a000000 {
-                        no-map;
-                        reg = <0x0 0x8a000000 0x0 0x1000000>;
-                };
-
-        npu_txpkt: npu-txpkt@8b000000 {
-                        no-map;
-                        reg = <0x0 0x8b000000 0x0 0x1000000>;
-                };
-
-        npu_txbufid: npu-txbufid@8c000000 {
-                        no-map;
-                        reg = <0x0 0x8c000000 0x0 0x6800>;
-
-		npu_ba: npu-ba@90c06800 {
 			no-map;
-			reg = <0x0 0x90c06800 0x0 0x200000>;
+			reg = <0x0 0x8a000000 0x0 0x1000000>;
 		};
-	};
+
+		npu_txpkt: npu-txpkt@8b000000 {
+			no-map;
+			reg = <0x0 0x8b000000 0x0 0x1000000>;
+		};
+
+		npu_txbufid: npu-txbufid@8c000000 {
+			no-map;
+			reg = <0x0 0x8c000000 0x0 0x6800>;
+		};
+
+		/* 把它缩减到 64KB (0x10000)，地址紧跟在后面 */
+		npu_ba: npu-ba@8c010000 {
+			no-map;
+			reg = <0x0 0x8c010000 0x0 0x10000>;
+		};
 
 	psci {
 		compatible = "arm,psci-1.0";
