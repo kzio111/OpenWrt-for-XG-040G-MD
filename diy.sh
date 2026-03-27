@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 辅助函数：强力替换/添加 .config 配置
+# 辅助函数：强力替换/添加 .config 配置 (物理注入)
 # =========================================================
 add_config() {
     local key=$(echo "$1" | cut -d'=' -f1)
@@ -17,105 +17,91 @@ rm -rf feeds/packages/utils/fwupd
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 3. 拉取 TurboAcc (适配 Airoha NPU)
+# 3. 拉取核心插件 (TurboAcc, NPU, Aurora 主题, Natmap)
 [ ! -d "package/turboacc-libs" ] && git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
 if [ ! -d "package/luci-app-turboacc" ]; then
     curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
     bash add_turboacc.sh --no-sfe
     rm -f add_turboacc.sh
 fi
-
-# 4. 拉取 Airoha NPU 插件并修复 Makefile 路径
-if [ ! -d "package/luci-app-airoha-npu" ]; then
-    git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu
-fi
+[ ! -d "package/luci-app-airoha-npu" ] && git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu
 [ -f package/luci-app-airoha-npu/Makefile ] && sed -i 's|\.\./\.\./luci\.mk|$(TOPDIR)/feeds/luci/luci.mk|g' package/luci-app-airoha-npu/Makefile
+[ ! -d "package/luci-theme-aurora" ] && git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
 
-# 5. 拉取 Aurora 主题
-if [ ! -d "package/luci-theme-aurora" ]; then
-    git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
-    git clone --depth=1 https://github.com/eamonxg/luci-app-aurora-config.git package/luci-app-aurora-config
-fi
-
-# 6. 同步新包
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 
-# 7. 生成基础配置 (必须在 add_config 之前做，否则会被重置)
+# 4. 生成基础配置 (此时父依赖可能还未满足)
 make defconfig
 
 # =========================================================
-# 8. 【核心修复】解决 N/A 的“暴力”权限解锁
+# 5. 【暴力修复】解决 CPU 频率 N/A 的关键 (绕过 menuconfig)
 # =========================================================
-# 你截图中没选上的就在这里：强制 Busybox 和内核全开权限
+# A. 物理注入内核驱动开关 (直接改内核模板)
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ=y' {}
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_STAT=y' {}
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_GOV_PERFORMANCE=y' {}
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_ARM_AIROHA_CPUFREQ=y' {}
+
+# B. 强制开启 Busybox 工具链与权限 (解决截图里选不上的问题)
 add_config "CONFIG_BUSYBOX_CUSTOM=y"
 add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
-add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"  # 强制补上你截图里没选上的那个
-add_config "CONFIG_KERNEL_DEVMEM=y"
-add_config "CONFIG_STRICT_DEVMEM=n"           # 关键：关闭内核严格内存保护
-add_config "CONFIG_IO_STRICT_DEVMEM=n"        # 关键：关闭 I/O 严格限制
+add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
+add_config "CONFIG_PACKAGE_busybox-selinux=y"
 
-# 补齐 Airoha 调频驱动 (解决频率显示前提)
+# C. 解除内核安全锁 (没这个权限 devmem 读不到数)
+add_config "CONFIG_STRICT_DEVMEM=n"
+add_config "CONFIG_IO_STRICT_DEVMEM=n"
+add_config "CONFIG_KERNEL_DEVMEM=y"
+
+# D. 补齐调频内核模块
 add_config "CONFIG_PACKAGE_kmod-cpufreq-dt=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-stats=y"
-add_config "CONFIG_ARM_AIROHA_CPUFREQ=y"
 
 # =========================================================
-# 9. 【网络与功能】补全 UPnP, Natmap, zRAM, TurboAcc
+# 6. 【补齐功能】UPnP, Natmap, zRAM, 中文包
 # =========================================================
-add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
-add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
 add_config "CONFIG_PACKAGE_luci-app-upnp=y"
 add_config "CONFIG_PACKAGE_luci-app-natmap=y"
 add_config "CONFIG_PACKAGE_natmap=y"
 add_config "CONFIG_PACKAGE_kmod-zram=y"
 add_config "CONFIG_PACKAGE_zram-swap=y"
-add_config "CONFIG_PACKAGE_coremark=y"
+add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
+add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
 
-# =========================================================
-# 10. 【本地化与主题】解决中文包丢失
-# =========================================================
+# 强制中文包锁定
 add_config "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
 add_config "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y"
 add_config "CONFIG_PACKAGE_luci-i18n-natmap-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y"
 add_config "CONFIG_LUCI_LANG_zh_Hans=y"
 add_config "CONFIG_PACKAGE_luci-theme-aurora=y"
-add_config "CONFIG_PACKAGE_luci-app-aurora-config=y"
-
-# 强制覆盖全局变量
-sed -i 's/^CONFIG_LUCI_THEME=.*/CONFIG_LUCI_THEME=aurora/' .config || echo "CONFIG_LUCI_THEME=aurora" >> .config
-sed -i 's/^CONFIG_LUCI_LANG=.*/CONFIG_LUCI_LANG=zh-cn/' .config || echo "CONFIG_LUCI_LANG=zh-cn" >> .config
 
 # =========================================================
-# 11. 运行时自动化配置 (uci-defaults)
+# 7. 运行时配置 (uci-defaults)
 # =========================================================
 mkdir -p files/etc/uci-defaults
 cat <<'EOF' > files/etc/uci-defaults/99-custom-settings
 #!/bin/sh
-
-# 1. 强制切换中文和主题
+# 强制中文和主题
 uci set luci.main.lang='zh_cn'
 uci set luci.main.theme='aurora'
 uci commit luci
-
-# 2. 默认开启 TurboAcc 硬件加速 (适配 NPU)
+# 开启硬件分流
 uci set turboacc.config.hw_flow_offload='1'
 uci commit turboacc
-
-# 3. zRAM 启用
+# 开启 zRAM
 [ -x "/etc/init.d/zram" ] && /etc/init.d/zram enable
-
-# 4. 时区上海
+# 设置时区
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].timezone='CST-8'
 uci commit system
-
 exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
-# 12. 最终补全依赖
+# =========================================================
+# 8. 最终锁定 (关键：再次执行以强制同步物理注入的选项)
+# =========================================================
 make oldconfig
 
-echo "✅ [SUCCESS] N/A 权限已暴力解锁，中文包已强行锁定，zRAM/网络插件已就绪。"
+echo "✅ [SUCCESS] N/A 修复、网络插件、中文包已全部物理锁定。"
