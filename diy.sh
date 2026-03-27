@@ -78,6 +78,8 @@ add_config "CONFIG_KERNEL_DEVMEM=y"
 # =========================================================
 # 9. CPU 频率调控支持（解决 CPU 频率显示 N/A 问题）
 # =========================================================
+add_config "CONFIG_PACKAGE_collectd=y"
+add_config "CONFIG_PACKAGE_collectd-mod-cpufreq=y"
 add_config "CONFIG_CPU_FREQ=y"
 add_config "CONFIG_CPU_FREQ_GOV_COMMON=y"
 add_config "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y"
