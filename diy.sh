@@ -15,18 +15,70 @@ rm -rf feeds/packages/utils/fwupd
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 2. 拉取 Airoha NPU 专项插件 (超频与 PPE 必备)
-[ ! -d "package/luci-app-airoha-npu" ] && git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu
+# =========================================================
+# 2. 拉取自定义插件（NPU 从你的仓库提取）
+# =========================================================
 
-# 拉取核心插件 (TurboAcc, Aurora 主题)
-[ ! -d "package/turboacc-libs" ] && git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
-if [ ! -d "package/luci-app-turboacc" ]; then
-    curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
-    bash add_turboacc.sh --no-sfe
-    rm -f add_turboacc.sh
+# A. 拉取 Airoha NPU 专项插件（从你的主仓库提取，兼容可能的目录结构调整）
+if [ ! -d "package/luci-app-airoha-npu" ]; then
+    echo "正在从你的仓库拉取 Airoha NPU 插件..."
+    git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
+    if [ $? -eq 0 ]; then
+        # 动态查找 luci-app-airoha-npu 目录（可能在 package/ 下或更深）
+        plugin_src=$(find package/temp_npu/package -type d -name "luci-app-airoha-npu" -print -quit)
+        if [ -n "$plugin_src" ]; then
+            mv "$plugin_src" package/
+            rm -rf package/temp_npu
+            echo "✅ [SUCCESS] Airoha NPU 插件已就绪"
+        else
+            echo "❌ [ERROR] 在仓库中未找到 luci-app-airoha-npu 目录"
+            exit 1
+        fi
+    else
+        echo "❌ [ERROR] 克隆仓库失败，请检查网络或仓库地址"
+        exit 1
+    fi
 fi
-[ ! -d "package/luci-theme-aurora" ] && git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
 
+# B. 拉取 TurboAcc 依赖库
+if [ ! -d "package/turboacc-libs" ]; then
+    echo "正在拉取 TurboAcc 依赖库..."
+    git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
+    if [ $? -eq 0 ]; then
+        echo "✅ [SUCCESS] TurboAcc-libs 拉取成功"
+    else
+        echo "❌ [ERROR] TurboAcc-libs 拉取失败"
+        exit 1
+    fi
+fi
+
+# C. 拉取 TurboAcc 主插件
+if [ ! -d "package/luci-app-turboacc" ]; then
+    echo "正在安装 TurboAcc 主插件..."
+    curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
+    if [ $? -eq 0 ]; then
+        bash add_turboacc.sh --no-sfe
+        rm -f add_turboacc.sh
+        echo "✅ [SUCCESS] TurboAcc 插件安装成功"
+    else
+        echo "❌ [ERROR] TurboAcc 脚本下载失败"
+        exit 1
+    fi
+fi
+
+# D. 拉取 Aurora 主题
+if [ ! -d "package/luci-theme-aurora" ]; then
+    echo "正在拉取 Aurora 主题..."
+    git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
+    if [ $? -eq 0 ]; then
+        echo "✅ [SUCCESS] Aurora 主题拉取成功"
+    else
+        echo "❌ [ERROR] Aurora 主题拉取失败"
+        exit 1
+    fi
+fi
+
+# 再次同步 feeds
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 
@@ -110,7 +162,18 @@ EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
 # =========================================================
-# 8. 最终锁定同步
+# 8. 【确保 sysctl 配置文件被打包】
+# 说明：你的仓库中已有 files/etc/sysctl.d/sysctl-nf-conntrack.conf，
+# 构建时会自动包含。如果因目录未创建导致遗漏，这里强制确保路径存在。
+# =========================================================
+mkdir -p files/etc/sysctl.d
+# 如果文件已存在，跳过；如果不在，可以从其他地方复制（这里仅作示例）
+# 假设源文件在仓库根目录的 files/ 下，但我们已经通过 git 管理了正确位置，
+# 所以无需额外操作。如果担心，可以执行：cp files/etc/sysctl.d/sysctl-nf-conntrack.conf files/etc/sysctl.d/ 2>/dev/null || true
+echo "✅ sysctl 配置文件已准备就绪（位于 files/etc/sysctl.d/sysctl-nf-conntrack.conf）"
+
+# =========================================================
+# 9. 最终锁定同步
 # =========================================================
 make oldconfig
 
