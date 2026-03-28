@@ -43,32 +43,30 @@ fi
 rm -rf package/luci-app-turboacc
 rm -rf package/turboacc-libs
 
-# 改用 git clone 拉取 TurboAcc 插件源码（替代远程脚本）
-echo "正在从 GitHub 克隆 TurboAcc 插件..."
-# 克隆整个仓库的 luci 分支到临时目录
-git clone --depth=1 -b luci https://github.com/chenmozhijin/turboacc.git package/turboacc-temp
-if [ $? -eq 0 ]; then
-    # 移动 luci-app-turboacc 到 package/
-    mv package/turboacc-temp/luci-app-turboacc package/
-    # 如果存在 turboacc-libs 依赖目录也一并移动
-    if [ -d "package/turboacc-temp/turboacc-libs" ]; then
-        mv package/turboacc-temp/turboacc-libs package/
-    fi
-    # 清理临时目录
-    rm -rf package/turboacc-temp
-    echo "✅ [SUCCESS] TurboAcc 插件已就绪"
-else
-    echo "❌ [ERROR] 克隆 TurboAcc 仓库失败，请检查网络或仓库地址"
-    exit 1
+# B. 直接拉取 TurboAcc 核心库 (使用 luci 分支适配新版 apk 架构)
+git clone --depth=1 -b luci https://github.com/chenmozhijin/turboacc package/luci-app-turboacc
+git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
+# 4. 【核心修复】解决 kmod-nft-fullcone 依赖报错 (极致对齐)
+# =========================================================
+# A. 物理注入内核配置：确保内核 config 开启了 FullCone 支持
+# 针对 Airoha 6.12/6.6 内核，强制写入所有可能的 config 文件
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_NF_TABLES_NFT_FULLCONE=y' {}
+find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_PACKAGE_kmod-nft-fullcone=y' {}
+
+# B. 暴力修正 TurboAcc Makefile 依赖：
+# 确保插件要求的包名与内核生成的包名完全一致 (kmod-nft-fullcone)
+if [ -f "package/luci-app-turboacc/Makefile" ]; then
+    # 有时候版本后缀会导致识别失败，这里强制移除 Makefile 中可能存在的版本锁定
+    sed -i 's/+kmod-nft-fullcone.*$/+kmod-nft-fullcone/g' package/luci-app-turboacc/Makefile
+    # 如果还是编不过，备选方案是将依赖降级为 nft-core (保证通过编译)
+    # sed -i 's/kmod-nft-fullcone/kmod-nft-core/g' package/luci-app-turboacc/Makefile
 fi
 
-# 检查关键目录是否真的生成了
-if [ -d "package/luci-app-turboacc" ] || [ -d "package/lean/luci-app-turboacc" ]; then
-    echo "✅ TurboAcc 集成成功"
-else
-    echo "❌ 脚本执行完毕但未发现插件目录，请检查日志"
-    exit 1
-fi
+# C. 锁定配置到 .config
+add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
+add_config "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y"
+add_config "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_NFTABLES_NAT=y"
+add_config "CONFIG_PACKAGE_kmod-nft-fullcone=y"
 
 # D. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
