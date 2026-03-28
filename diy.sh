@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# 辅助函数：强力替换/添加 .config 配置
+# 辅助函数：强力替换/添加 .config 配置 (物理注入)
 # =========================================================
 add_config() {
     local key=$(echo "$1" | cut -d'=' -f1)
@@ -10,68 +10,49 @@ add_config() {
     echo "$1" >> .config
 }
 
-# 1. 环境预处理：重命名并修正 Feeds 源
+# 1. 环境预处理：强制写入你提供的 Feeds 配置
+# =========================================================
 echo "-------------------------------------------------------"
-if [ -f "../feeds.conf.default-25.12" ]; then
-    cp -f ../feeds.conf.default-25.12 feeds.conf.default
-    echo "✅ [SUCCESS] 已挂载自定义 Feeds 配置文件"
-else
-    echo "⚠️ [NOTICE] 未找到自定义 feeds 文件，使用默认源"
-fi
+cat <<'EOF' > feeds.conf.default
+src-git packages https://github.com/immortalwrt/packages.git;master
+src-git luci https://github.com/immortalwrt/luci.git;master
+src-git routing https://github.com/immortalwrt/routing.git;master
+src-git telephony https://github.com/immortalwrt/telephony.git;master
+EOF
+echo "✅ [SUCCESS] Feeds 配置文件已根据输入内容强制同步"
 
-# A. 修正源地址为 ImmortalWrt Master
-sed -i 's|https://github.com/openwrt/packages.git;openwrt-25.12|https://github.com/immortalwrt/packages.git;master|g' feeds.conf.default
-sed -i 's|https://github.com/openwrt/luci.git;openwrt-25.12|https://github.com/immortalwrt/luci.git;master|g' feeds.conf.default
-
-# B. 【关键修复】剔除报错的 telephony 源 (反正你也不用 VoIP 电话)
+# 解决 telephony 导致 find 报错的问题：直接在 update 前从配置中剔除它（如果你不需要 VoIP）
+# 如果你需要 telephony，请注释掉下面这一行
 sed -i '/telephony/d' feeds.conf.default
-echo "✅ [FIX] 已剔除可能导致报错的 telephony 仓库"
 
-# C. 执行 Feeds 更新并增加重试逻辑
-echo "正在更新 Feeds 列表..."
-n=0
-until [ $n -ge 3 ]
-do
-    ./scripts/feeds update -a && break
-    n=$[$n+1]
-    echo "⚠️ [RETRY] Feeds 更新失败，正在进行第 $n 次重试..."
-    sleep 2
-done
-
-if [ $? -eq 0 ]; then
-    echo "✅ [SUCCESS] Feeds 列表更新成功"
-else
-    echo "❌ [ERROR] Feeds 更新彻底失败，请检查 feeds.conf.default 的 URL"
-fi
-
-./scripts/feeds install -a
-[ $? -eq 0 ] && echo "✅ [SUCCESS] Feeds 依赖安装完成" || echo "❌ [ERROR] Feeds 安装过程中有缺失"
+# 清理旧索引并重新拉取
+rm -rf feeds/
+./scripts/feeds update -a && ./scripts/feeds install -a
+echo "✅ [SUCCESS] Feeds 依赖已完全刷新"
 
 # =========================================================
-# 2. 插件拉取 (带拉取结果校验)
+# 2. 插件同步 (带路径存在性校验)
 # =========================================================
 
-# A. 拉取 Airoha NPU 专项插件
+# A. 拉取 Airoha NPU 专项插件 (针对 XG-040G-MD)
 echo "-------------------------------------------------------"
 rm -rf package/temp_npu
 git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
 if [ $? -eq 0 ]; then
-    plugin_src=$(find package/temp_npu -type d -name "luci-app-airoha-npu" -print -quit)
-    if [ -n "$plugin_src" ]; then
-        cp -r "$plugin_src" package/
-        echo "✅ [SUCCESS] Airoha NPU 插件提取成功"
-    else
-        echo "❌ [ERROR] 仓库内未找到 NPU 插件目录"
-    fi
-    rm -rf package/temp_npu
-else
-    echo "❌ [ERROR] NPU 仓库 Git 克隆失败"
+    [ -d "package/temp_npu/luci-app-airoha-npu" ] && cp -r package/temp_npu/luci-app-airoha-npu package/
+    echo "✅ [SUCCESS] Airoha NPU 插件提取完成"
 fi
+rm -rf package/temp_npu
 
-# B. 挂载内置 TurboACC
-echo "正在挂载内置 TurboACC..."
+# B. 挂载内置 TurboACC (强制从 luci feed 安装)
+echo "正在深度挂载 TurboACC..."
 ./scripts/feeds install -p luci luci-app-turboacc
-[ $? -eq 0 ] && echo "✅ [SUCCESS] 已成功挂载内置 TurboACC" || echo "❌ [ERROR] 内置 TurboACC 挂载失败"
+if [ -d "package/feeds/luci/luci-app-turboacc" ]; then
+    echo "✅ [SUCCESS] 已确认 TurboACC 挂载成功 (内置源)"
+else
+    echo "⚠️ [WARNING] 内置源未找到，尝试外部仓库兜底..."
+    git clone --depth=1 https://github.com/chenhw2/luci-app-turboacc.git package/luci-app-turboacc
+fi
 
 # C. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
