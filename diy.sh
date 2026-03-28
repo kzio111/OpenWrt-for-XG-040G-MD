@@ -17,7 +17,7 @@ add_config() {
 ./scripts/feeds install -a
 
 # 2. 删除引起警告的无用包（消除编译日志噪音）
-echo "正在清理无用的包依赖（消除警告）..."
+echo "正在清理无用的包依赖..."
 rm -rf feeds/packages/utils/fwupd
 echo "清理完成。"
 
@@ -28,141 +28,92 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     echo "正在从你的仓库拉取 Airoha NPU 插件..."
     git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
     if [ $? -eq 0 ]; then
-        plugin_src=$(find package/temp_npu/package -type d -name "luci-app-airoha-npu" -print -quit)
+        # 自动兼容不同层级的目录结构
+        plugin_src=$(find package/temp_npu -type d -name "luci-app-airoha-npu" -print -quit)
         if [ -n "$plugin_src" ]; then
             mv "$plugin_src" package/
-            rm -rf package/temp_npu
             echo "✅ [SUCCESS] Airoha NPU 插件已就绪"
-        else
-            echo "❌ [ERROR] 在仓库中未找到 luci-app-airoha-npu 目录"
-            exit 1
         fi
+        rm -rf package/temp_npu
     else
-        echo "❌ [ERROR] 克隆仓库失败，请检查网络或仓库地址"
+        echo "❌ [ERROR] 克隆仓库失败"
         exit 1
     fi
 fi
 
 # =========================================================
-# =========================================================
-# =========================================================
 # 4. TurboAcc 集成（使用 chenmozhijin/turboacc 仓库）
 # =========================================================
-echo -e "\033[36m正在使用 TurboAcc 脚本集成（chenmozhijin/turboacc）...\033[0m"
+echo -e "\033[36m正在集成 TurboAcc 脚本...\033[0m"
 
-# [修复核心报错]：解决新版 OpenWrt 内核补丁目录规范冲突
-echo "正在检测并修复内核补丁目录冲突..."
-if [ -d "target/linux/generic/patches" ]; then
-    mkdir -p target/linux/generic/pending-6.12
-    # 将旧规范 patches 移入 pending，防止 target/linux 报错 exit 1
-    cp -rn target/linux/generic/patches/* target/linux/generic/pending-6.12/ 2>/dev/null
-    rm -rf target/linux/generic/patches
-    echo -e "\033[32m✅ 内核补丁目录冲突已修复\033[0m"
-fi
-
-# 清理旧文件
+# 清理旧文件防止冲突
 rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
-rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
 rm -rf package/luci-app-turboacc 2>/dev/null || true
-rm -rf package/turboacc-libs 2>/dev/null || true
 rm -rf tmp 2>/dev/null || true
 
 # 执行 TurboAcc 脚本（--no-sfe 参数）
 if curl -fsSL --connect-timeout 10 --retry 3 \
     "https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh" -o add_turboacc.sh && \
    bash add_turboacc.sh --no-sfe; then
-    echo -e "\033[32m*******************************************************"
-    echo "* *"
-    echo "* 🎉  TurboAcc 脚本集成执行成功！                      *"
-    echo "* NFTables / Flow Offload 已准备就绪              *"
-    echo "* *"
-    echo "*******************************************************\033[0m"
+    
+    # 【核心修复】：解决 6.12 内核补丁报错 exit 1
+    if [ -d "target/linux/generic/patches" ]; then
+        mkdir -p target/linux/generic/pending-6.12
+        cp -rn target/linux/generic/patches/* target/linux/generic/pending-6.12/ 2>/dev/null
+        rm -rf target/linux/generic/patches
+        echo -e "\033[32m✅ 内核补丁目录冲突已修复 (适配 6.12)\033[0m"
+    fi
 else
-    echo -e "\033[31m❌ [ERROR] TurboAcc 脚本执行失败，请检查网络或仓库地址。\033[0m"
+    echo -e "\033[31m❌ [ERROR] TurboAcc 脚本执行失败\033[0m"
     exit 1
 fi
 rm -f add_turboacc.sh
 
-# ========== 手动修复 luci-app-turboacc 的 Makefile（移除 SFE 依赖）==========
-echo "正在修复 luci-app-turboacc 的 Makefile，强制适配 6.12 内核..."
-# 尝试定位真正的 Makefile 路径
+# 修正 Makefile（移除 SFE 依赖）
 TURBO_PATH=$(find package -name "luci-app-turboacc" -type d | head -n 1)
 if [ -n "$TURBO_PATH" ] && [ -f "$TURBO_PATH/Makefile" ]; then
     sed -i '/kmod-fast-classifier/d' "$TURBO_PATH/Makefile"
     sed -i '/kmod-shortcut-fe/d' "$TURBO_PATH/Makefile"
-    echo -e "\033[32m✅ 已成功移除 $TURBO_PATH/Makefile 中的 SFE 依赖\033[0m"
-else
-    echo -e "\033[33m⚠️ 未找到 TurboAcc Makefile，可能已被脚本自动集成，跳过手动修复。\033[0m"
 fi
 
-# [此处保留你之前写的 kmod-nft-fullcone 手动下载逻辑...]
-
-# 重新生成 feeds 索引
+# 重新同步 feeds 索引
 ./scripts/feeds update -i
 ./scripts/feeds install -a
+
 # =========================================================
-# 5. 拉取 Aurora 主题（可选）
+# 5. 拉取 Aurora 主题
 # =========================================================
 if [ ! -d "package/luci-theme-aurora" ]; then
-    echo "正在拉取 Aurora 主题..."
     git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
-    if [ $? -eq 0 ]; then
-        echo "✅ [SUCCESS] Aurora 主题拉取成功"
-    else
-        echo "❌ [ERROR] Aurora 主题拉取失败"
-        exit 1
-    fi
 fi
 
 # =========================================================
-# 6. 生成基础配置
+# 6. 生成基础配置并物理注入内核参数
 # =========================================================
 make defconfig
 
-# =========================================================
-# 7. 【核心修复】解锁 Devmem 寄存器访问与 CPU 频率
-# =========================================================
+# 解锁 Devmem 寄存器访问与 CPU 频率权限
 add_config "CONFIG_PACKAGE_busybox=y"
-add_config "CONFIG_PACKAGE_busybox-selinux=y"
-add_config "CONFIG_BUSYBOX_CUSTOM=y"
 add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
-add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
 add_config "CONFIG_STRICT_DEVMEM=n"
-add_config "CONFIG_IO_STRICT_DEVMEM=n"
 add_config "CONFIG_KERNEL_DEVMEM=y"
-add_config "CONFIG_KERNEL_DEBUG_FS=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-dt=y"
-add_config "CONFIG_PACKAGE_kmod-cpufreq-stats=y"
 
-# 物理注入 Airoha 内核调频驱动
+# 物理注入 Airoha 内核调频驱动到 config-6.12
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ=y' {}
-find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_STAT=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_ARM_AIROHA_CPUFREQ=y' {}
 
-# =========================================================
-# 8. 【彻底剔除 WiFi】去除所有无线相关驱动与支持
-# =========================================================
+# 彻底剔除 WiFi 支持
 add_config "CONFIG_PACKAGE_kmod-mt76=n"
-add_config "CONFIG_PACKAGE_kmod-mt7915-firmware=n"
 add_config "CONFIG_PACKAGE_wpad-basic-wolfssl=n"
-add_config "CONFIG_PACKAGE_iw=n"
-add_config "CONFIG_PACKAGE_wireless-tools=n"
 
-# =========================================================
-# 9. 【插件与功能锁定】勾选 NPU 与网络加速
-# =========================================================
+# 勾选核心插件
 add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
 add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
 add_config "CONFIG_PACKAGE_luci-app-upnp=y"
 add_config "CONFIG_PACKAGE_luci-app-natmap=y"
-add_config "CONFIG_PACKAGE_kmod-zram=y"
-add_config "CONFIG_PACKAGE_zram-swap=y"
-
-# 强制中文包与主题
-add_config "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y"
-add_config "CONFIG_LUCI_LANG_zh_Hans=y"
 add_config "CONFIG_PACKAGE_luci-theme-aurora=y"
+add_config "CONFIG_LUCI_LANG_zh_Hans=y"
 
 # =========================================================
 # 10. 运行时初始化配置 (uci-defaults)
@@ -170,32 +121,33 @@ add_config "CONFIG_PACKAGE_luci-theme-aurora=y"
 mkdir -p files/etc/uci-defaults
 cat <<'EOF' > files/etc/uci-defaults/99-custom-settings
 #!/bin/sh
-# 强制中文和主题
 uci set luci.main.lang='zh_cn'
 uci set luci.main.theme='aurora'
-uci commit luci
-# 开启硬件加速 (HW NAT)
 uci set turboacc.config.hw_flow_offload='1'
-uci commit turboacc
-# 开启 zRAM
-[ -x "/etc/init.d/zram" ] && /etc/init.d/zram enable
-# 设置时区
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].timezone='CST-8'
+uci commit luci
+uci commit turboacc
 uci commit system
 exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
 # =========================================================
-# 11. 确保 sysctl 配置文件打包
+# 11. 确保 sysctl 配置文件打包 (nf-conntrack 优化)
 # =========================================================
 mkdir -p files/etc/sysctl.d
-echo "✅ sysctl 配置文件已准备就绪（位于 files/etc/sysctl.d/sysctl-nf-conntrack.conf）"
+cat <<'EOF' > files/etc/sysctl.d/sysctl-nf-conntrack.conf
+net.netfilter.nf_conntrack_max=65535
+net.netfilter.nf_conntrack_tcp_timeout_established=1200
+net.netfilter.nf_conntrack_udp_timeout=10
+net.netfilter.nf_conntrack_udp_timeout_stream=60
+net.netfilter.nf_conntrack_helper=1
+EOF
 
 # =========================================================
 # 12. 最终锁定同步
 # =========================================================
 make oldconfig
 
-echo "✅ [SUCCESS] 纯净无 WiFi 版 Airoha 编译环境已锁定，NPU 与超频权限已就绪。"
+echo "✅ [SUCCESS] 编译环境已完全锁定，针对 AN7581DT 与 6.12 内核优化完毕。"
