@@ -40,80 +40,43 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     fi
 fi
 
-# ------------------------- TurboAcc 优化部分（开始） -------------------------
-# 说明：以下代码用于拉取并配置 turboacc 相关组件，已优化为更可靠的下载方式
+echo "======= 开始修复 nft-fullcone ======="
 
-# 清理旧包
-echo "清理旧的 turboacc 相关文件..."
-rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
-rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
-rm -rf package/luci-app-turboacc 2>/dev/null || true
-rm -rf package/turboacc-libs 2>/dev/null || true
-rm -rf tmp 2>/dev/null || true
+# 尝试从 feeds 定位（如果 feeds 已经有了就不用再 clone）
+FULLCONE_FIND=$(find feeds/ -name "nft-fullcone" -type d | head -n 1)
 
-# 更新 feeds 并安装组件
-echo "更新 feeds 并安装所有包..."
-./scripts/feeds update -a || { echo "feeds update 失败"; exit 1; }
-./scripts/feeds install -a || { echo "feeds install -a 失败"; exit 1; }
-
-# 尝试单独安装（允许失败，后续补救）
-./scripts/feeds install kmod-nft-fullcone 2>/dev/null || echo "kmod-nft-fullcone 在 feeds 中未找到"
-./scripts/feeds install luci-app-turboacc 2>/dev/null || echo "luci-app-turboacc 在 feeds 中未找到"
-
-# 下载并执行第三方 turboacc 依赖补全脚本
-echo "下载并执行 turboacc 依赖补全脚本..."
-TEMP_SCRIPT="add_turboacc.sh"
-curl -fsSL --connect-timeout 10 --retry 3 \
-    "https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh" \
-    -o "$TEMP_SCRIPT" || { echo "下载 add_turboacc.sh 失败"; exit 1; }
-
-echo "正在执行外部脚本 $TEMP_SCRIPT（请确保来源可靠）..."
-bash "$TEMP_SCRIPT" || { echo "add_turboacc.sh 执行失败"; exit 1; }
-rm -f "$TEMP_SCRIPT"
-
-# 重新生成 feeds 索引，确保新加入的包被识别
-./scripts/feeds update -i || echo "feeds update -i 警告"
-./scripts/feeds install -a || { echo "二次 feeds install 失败"; exit 1; }
-
-# 检查 kmod-nft-fullcone
-FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit 2>/dev/null || true)
-if [ -n "$FULLCONE_PATH" ]; then
-    echo "✅ kmod-nft-fullcone 已定位: $FULLCONE_PATH"
-else
-    echo "⚠️ 未在 feeds 中找到 kmod-nft-fullcone，尝试手动下载..."
-    # 使用 curl 直接下载 nft-fullcone 的 Makefile 和源码（避免 git clone 认证问题）
-    mkdir -p package/kmod-nft-fullcone
-    cd package/kmod-nft-fullcone
-    BASE_URL="https://raw.githubusercontent.com/kiddin9/openwrt-packages/master/nft-fullcone"
-    files=("Makefile" "src/nft-fullcone.c" "src/nft-fullcone.h" "src/nft-fullcone.8")
-    for f in "${files[@]}"; do
-        mkdir -p "$(dirname "$f")"
-        curl -fsSL --connect-timeout 10 --retry 3 "$BASE_URL/$f" -o "$f" || echo "下载 $f 失败，请稍后重试"
-    done
-    cd - >/dev/null
-    if [ -f package/kmod-nft-fullcone/Makefile ]; then
-        echo "✅ nft-fullcone 已手动放入 package/kmod-nft-fullcone/"
+if [ -z "$FULLCONE_FIND" ]; then
+    echo "⚠️ Feeds 中缺失，正在执行强制手动拉取..."
+    # 使用比较稳定的开源仓库作为源码来源
+    git clone --depth 1 https://github.com/kiddin9/openwrt-packages.git temp_repo
+    if [ -d "temp_repo/nft-fullcone" ]; then
+        cp -r temp_repo/nft-fullcone package/
+        echo "✅ 手动拉取成功"
     else
-        echo "❌ 手动下载 nft-fullcone 失败，请检查网络或手动添加该包"
+        echo "❌ 克隆仓库成功但未找到 nft-fullcone 文件夹"
         exit 1
     fi
-fi
-
-# 检查 luci-app-turboacc
-TURBOACC_PATH=$(find feeds/ -type d -name "luci-app-turboacc" -print -quit 2>/dev/null || true)
-if [ -z "$TURBOACC_PATH" ]; then
-    TURBOACC_PATH=$(find package/ -type d -name "luci-app-turboacc" -print -quit 2>/dev/null || true)
-fi
-if [ -n "$TURBOACC_PATH" ]; then
-    echo "✅ luci-app-turboacc 已定位: $TURBOACC_PATH"
+    rm -rf temp_repo
 else
-    echo "❌ 未找到 luci-app-turboacc，请检查 add_turboacc.sh 是否成功执行"
-    exit 1
+    echo "✅ Feeds 中已存在: $FULLCONE_FIND"
 fi
 
-echo "======= TurboAcc 组件检查完成 ======="
-# ------------------------- TurboAcc 优化部分（结束） -------------------------
+# 检查 TurboACC
+TURBOACC_FIND=$(find feeds/ -name "luci-app-turboacc" -type d | head -n 1)
+if [ -n "$TURBOACC_FIND" ]; then
+    echo "✅ TurboACC 插件已就绪"
+else
+    echo "❌ TurboACC 插件缺失，尝试重新执行 add_turboacc.sh"
+    curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh -o add_turboacc.sh
+    bash add_turboacc.sh
+fi
 
+# 最后强行修正 .config
+sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
+echo "CONFIG_PACKAGE_kmod-nft-fullcone=y" >> .config
+make defconfig
+
+echo "======= 修复完成 ======="
 # B. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
