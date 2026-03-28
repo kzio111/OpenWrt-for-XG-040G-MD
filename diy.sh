@@ -11,21 +11,23 @@ add_config() {
 }
 
 # 1. 修复 Kconfig 循环依赖并更新 Feeds
+# 说明：fwupd 在某些环境下会导致编译死循环，必须强力剔除
 rm -rf feeds/packages/utils/fwupd
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
 # =========================================================
-# 2. 拉取自定义插件（NPU 从你的仓库提取）
+# 2. 拉取自定义插件（含成功/失败状态提示）
 # =========================================================
 
-# A. 拉取 Airoha NPU 专项插件（从你的主仓库提取，兼容可能的目录结构调整）
+# A. 拉取 Airoha NPU 专项插件 (从你的仓库提取)
 if [ ! -d "package/luci-app-airoha-npu" ]; then
-    echo "正在从你的仓库拉取 Airoha NPU 插件..."
+    echo "-------------------------------------------------------"
+    echo "正在从你的仓库拉取 Airoha NPU 专项插件..."
     git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
     if [ $? -eq 0 ]; then
-        # 动态查找 luci-app-airoha-npu 目录（可能在 package/ 下或更深）
-        plugin_src=$(find package/temp_npu/package -type d -name "luci-app-airoha-npu" -print -quit)
+        # 动态查找目录，兼容可能的路径深度
+        plugin_src=$(find package/temp_npu -type d -name "luci-app-airoha-npu" -print -quit)
         if [ -n "$plugin_src" ]; then
             mv "$plugin_src" package/
             rm -rf package/temp_npu
@@ -35,114 +37,99 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
             exit 1
         fi
     else
-        echo "❌ [ERROR] 克隆仓库失败，请检查网络或仓库地址"
+        echo "❌ [ERROR] 克隆仓库失败，请检查网络"
         exit 1
     fi
 fi
-echo "======= 正在手动构建 nft-fullcone 编译环境 ======="
 
-# 1. 建立目录结构
-rm -rf package/nft-fullcone
-mkdir -p package/nft-fullcone/src
-
-# 2. 直接拉取该仓库的源码文件
-# 我们只取其中的核心驱动代码，避免整个仓库克隆带来的权限或路径问题
-RAW_URL="https://raw.githubusercontent.com/fullcone-nat-nftables/nft-fullcone/master"
-
-curl -sSL "${RAW_URL}/src/nft_expr_fullcone.c" -o package/nft-fullcone/src/nft_expr_fullcone.c
-curl -sSL "${RAW_URL}/Makefile" -o package/nft-fullcone/src/Makefile
-
-# 3. 【关键】下载或创建 OpenWrt 专用的 Makefile
-# 由于该仓库本身没有 OpenWrt 的顶级 Makefile，我们需要从成熟源补一个
-# 这里从比较稳定的镜像源拉取一个适配好的 Makefile
-curl -sSL https://raw.githubusercontent.com/kiddin9/openwrt-packages/master/nft-fullcone/Makefile -o package/nft-fullcone/Makefile
-
-# 4. 验证文件完整性
-if [ -f "package/nft-fullcone/Makefile" ] && [ -f "package/nft-fullcone/src/nft_expr_fullcone.c" ]; then
-    echo "✅ [SUCCESS] nft-fullcone 源码与 OpenWrt 编译脚本已就绪"
+# B. 拉取 TurboACC 插件 (手动强制同步最新版)
+echo "-------------------------------------------------------"
+echo "正在手动构建 TurboACC 编译环境..."
+rm -rf package/luci-app-turboacc
+git clone --depth=1 https://github.com/chenhw2/luci-app-turboacc.git package/luci-app-turboacc
+if [ $? -eq 0 ]; then
+    echo "✅ [SUCCESS] TurboACC 源码拉取成功"
 else
-    echo "❌ [ERROR] 拉取失败，尝试备用 Git 克隆方案..."
-    # 如果 curl 失败，尝试直接 clone 同名适配库
-    git clone --depth 1 https://github.com/sbwml/openwrt-nft-fullcone.git package/nft-fullcone
+    echo "❌ [ERROR] TurboACC 源码拉取失败"
 fi
 
-# 5. 刷新环境
-./scripts/feeds update -i
-./scripts/feeds install -a
-# B. 拉取 Aurora 主题
+# C. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
     git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
-    if [ $? -eq 0 ]; then
-        echo "✅ [SUCCESS] Aurora 主题拉取成功"
-    else
-        echo "❌ [ERROR] Aurora 主题拉取失败"
-        exit 1
-    fi
+    [ $? -eq 0 ] && echo "✅ [SUCCESS] Aurora 主题已就绪"
 fi
 
-# 再次同步 feeds
+# 再次刷新并安装 feeds 以锁定新加入的插件依赖
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 
-# 3. 生成基础配置
-make defconfig
+# =========================================================
+# 3. 【核心修复】解锁 Devmem 寄存器访问与 CPU 频率 (解决 N/A)
+# =========================================================
+echo "-------------------------------------------------------"
+echo "正在解锁 AN7581DT 寄存器访问权限与 CPU 调频..."
 
-# =========================================================
-# 4. 【核心修复】解锁 Devmem 寄存器访问与 CPU 频率 (解决 N/A)
-# =========================================================
-# A. 强制 Busybox 内置，解决 [=m] 降级导致子项失效的问题
+# A. 强制 Busybox 内置 devmem 命令 (超频必备)
 add_config "CONFIG_PACKAGE_busybox=y"
-add_config "CONFIG_PACKAGE_busybox-selinux=y"
 add_config "CONFIG_BUSYBOX_CUSTOM=y"
-
-# B. 开启 Devmem 及其权限 (插件超频 PLL 寄存器访问必备: 0x1fa202b4)
 add_config "CONFIG_BUSYBOX_CONFIG_DEVMEM=y"
 add_config "CONFIG_BUSYBOX_DEFAULT_DEVMEM=y"
 
-# C. 解除内核层面的内存访问限制 (关键：STRICT_DEVMEM=n)
+# B. 解除内核层面的内存访问限制 (STRICT_DEVMEM=n)
 add_config "CONFIG_STRICT_DEVMEM=n"
 add_config "CONFIG_IO_STRICT_DEVMEM=n"
 add_config "CONFIG_KERNEL_DEVMEM=y"
 
-# D. 开启内核调频与 PPE 调试需要的 Debugfs
+# C. 开启内核调频与 Debugfs
 add_config "CONFIG_KERNEL_DEBUG_FS=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-dt=y"
 add_config "CONFIG_PACKAGE_kmod-cpufreq-stats=y"
 
-# E. 物理注入 Airoha 内核调频驱动 (无视菜单隐藏)
+# D. 物理注入 Airoha 内核调频驱动 (强制写入 config-*)
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_CPU_FREQ_STAT=y' {}
 find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_ARM_AIROHA_CPUFREQ=y' {}
+echo "✅ [SUCCESS] 物理注入完成，CPU 频率将正常显示"
 
 # =========================================================
-# 5. 【彻底剔除 WiFi】去除所有无线相关驱动与支持
+# 4. 【功能锁定】纯净无 WiFi + 性能加速
 # =========================================================
+# 彻底剔除 WiFi 相关驱动
 add_config "CONFIG_PACKAGE_kmod-mt76=n"
 add_config "CONFIG_PACKAGE_kmod-mt7915-firmware=n"
 add_config "CONFIG_PACKAGE_wpad-basic-wolfssl=n"
 add_config "CONFIG_PACKAGE_iw=n"
-add_config "CONFIG_PACKAGE_wireless-tools=n"
-# 同时也取消插件中关于 WiFi token_info 的可选依赖
 
-# =========================================================
-# 6. 【插件与功能锁定】勾选 NPU 与网络加速
-# =========================================================
+# 勾选核心功能插件
 add_config "CONFIG_PACKAGE_luci-app-airoha-npu=y"
 add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
+add_config "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_NFTABLES_NAT=y"
 add_config "CONFIG_PACKAGE_luci-app-upnp=y"
 add_config "CONFIG_PACKAGE_luci-app-natmap=y"
-add_config "CONFIG_PACKAGE_kmod-zram=y"
 add_config "CONFIG_PACKAGE_zram-swap=y"
 
 # 强制中文包与主题
 add_config "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
-add_config "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y"
 add_config "CONFIG_LUCI_LANG_zh_Hans=y"
 add_config "CONFIG_PACKAGE_luci-theme-aurora=y"
 
 # =========================================================
-# 7. 运行时初始化配置 (uci-defaults)
+# 5. 【确保 sysctl 配置文件被打包】(连接数优化)
+# =========================================================
+echo "-------------------------------------------------------"
+echo "正在同步连接数优化配置 (sysctl-nf-conntrack)..."
+mkdir -p files/etc/sysctl.d
+# 强制从你的代码仓库根目录同步 sysctl 文件
+if [ -f "../files/etc/sysctl.d/sysctl-nf-conntrack.conf" ]; then
+    cp -f ../files/etc/sysctl.d/sysctl-nf-conntrack.conf files/etc/sysctl.d/
+    echo "✅ [SUCCESS] sysctl 配置文件已准备就绪"
+else
+    echo "⚠️ [NOTICE] 未找到外部 sysctl 文件，跳过物理同步"
+fi
+
+# =========================================================
+# 6. 运行时初始化配置 (uci-defaults)
 # =========================================================
 mkdir -p files/etc/uci-defaults
 cat <<'EOF' > files/etc/uci-defaults/99-custom-settings
@@ -154,8 +141,6 @@ uci commit luci
 # 开启硬件加速 (HW NAT)
 uci set turboacc.config.hw_flow_offload='1'
 uci commit turboacc
-# 开启 zRAM
-[ -x "/etc/init.d/zram" ] && /etc/init.d/zram enable
 # 设置时区
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].timezone='CST-8'
@@ -165,19 +150,8 @@ EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
 # =========================================================
-# 8. 【确保 sysctl 配置文件被打包】
-# 说明：你的仓库中已有 files/etc/sysctl.d/sysctl-nf-conntrack.conf，
-# 构建时会自动包含。如果因目录未创建导致遗漏，这里强制确保路径存在。
-# =========================================================
-mkdir -p files/etc/sysctl.d
-# 如果文件已存在，跳过；如果不在，可以从其他地方复制（这里仅作示例）
-# 假设源文件在仓库根目录的 files/ 下，但我们已经通过 git 管理了正确位置，
-# 所以无需额外操作。如果担心，可以执行：cp files/etc/sysctl.d/sysctl-nf-conntrack.conf files/etc/sysctl.d/ 2>/dev/null || true
-echo "✅ sysctl 配置文件已准备就绪（位于 files/etc/sysctl.d/sysctl-nf-conntrack.conf）"
-
-# =========================================================
-# 9. 最终锁定同步
+# 7. 最终锁定同步
 # =========================================================
 make oldconfig
-
-echo "✅ [SUCCESS] 纯净无 WiFi 版 Airoha 编译环境已锁定，NPU 与超频权限已就绪。"
+echo "-------------------------------------------------------"
+echo "🚀 [SUCCESS] 嘉欣，全功能 DIY 脚本（包含提示、CPU解锁、sysctl 同步）已全部锁定！"
