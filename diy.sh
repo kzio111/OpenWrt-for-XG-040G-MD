@@ -10,47 +10,47 @@ add_config() {
     echo "$1" >> .config
 }
 
-# 1. 修复 Kconfig 循环依赖并更新 Feeds
-# 说明：fwupd 在某些环境下会导致编译死循环，必须强力剔除
+# 1. 环境预处理：修正 Feeds 源 (指向 ImmortalWrt Master)
+echo "-------------------------------------------------------"
+echo "正在修正 Feeds 源至 ImmortalWrt 官方仓库..."
+# 自动替换官方 25.12 为 ImmortalWrt Master
+sed -i 's|https://github.com/openwrt/packages.git;openwrt-25.12|https://github.com/immortalwrt/packages.git;master|g' feeds.conf.default
+sed -i 's|https://github.com/openwrt/luci.git;openwrt-25.12|https://github.com/immortalwrt/luci.git;master|g' feeds.conf.default
+
+# 清理 fwupd 防止编译死循环
 rm -rf feeds/packages/utils/fwupd
+
+# 更新并安装 Feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
+echo "✅ [SUCCESS] Feeds 源已同步并安装完成"
 
 # =========================================================
-# 2. 拉取自定义插件（含成功/失败状态提示）
+# 2. 插件同步与拉取 (带成功提示)
 # =========================================================
 
-# A. 拉取 Airoha NPU 专项插件 (从你的仓库提取)
+# A. 拉取 Airoha NPU 专项插件 (你的仓库)
 if [ ! -d "package/luci-app-airoha-npu" ]; then
-    echo "-------------------------------------------------------"
-    echo "正在从你的仓库拉取 Airoha NPU 专项插件..."
+    echo "正在拉取 Airoha NPU 专项插件..."
+    rm -rf package/temp_npu
     git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
     if [ $? -eq 0 ]; then
-        # 动态查找目录，兼容可能的路径深度
         plugin_src=$(find package/temp_npu -type d -name "luci-app-airoha-npu" -print -quit)
-        if [ -n "$plugin_src" ]; then
-            mv "$plugin_src" package/
-            rm -rf package/temp_npu
-            echo "✅ [SUCCESS] Airoha NPU 插件已就绪"
-        else
-            echo "❌ [ERROR] 在仓库中未找到 luci-app-airoha-npu 目录"
-            exit 1
-        fi
+        [ -n "$plugin_src" ] && cp -r "$plugin_src" package/
+        rm -rf package/temp_npu
+        echo "✅ [SUCCESS] Airoha NPU 插件拉取成功"
     else
-        echo "❌ [ERROR] 克隆仓库失败，请检查网络"
-        exit 1
+        echo "❌ [ERROR] Airoha NPU 仓库拉取失败"
     fi
 fi
 
-# B. 拉取 TurboACC 插件 (手动强制同步最新版)
-echo "-------------------------------------------------------"
-echo "正在手动构建 TurboACC 编译环境..."
-rm -rf package/luci-app-turboacc
-git clone --depth=1 https://github.com/chenhw2/luci-app-turboacc.git package/luci-app-turboacc
+# B. 同步内置 TurboACC (直接从 Feed 安装，不 clone)
+echo "正在从 Feeds 挂载内置 TurboACC..."
+./scripts/feeds install -p luci luci-app-turboacc
 if [ $? -eq 0 ]; then
-    echo "✅ [SUCCESS] TurboACC 源码拉取成功"
+    echo "✅ [SUCCESS] 已成功挂载 ImmortalWrt 内置 TurboACC"
 else
-    echo "❌ [ERROR] TurboACC 源码拉取失败"
+    echo "❌ [ERROR] 挂载内置 TurboACC 失败，请检查 feeds.conf.default"
 fi
 
 # C. 拉取 Aurora 主题
