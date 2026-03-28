@@ -40,43 +40,50 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     fi
 fi
 
-echo "======= 开始修复 nft-fullcone ======="
+echo "======= 开始修复 nft-fullcone (增强版) ======="
 
-# 尝试从 feeds 定位（如果 feeds 已经有了就不用再 clone）
-FULLCONE_FIND=$(find feeds/ -name "nft-fullcone" -type d | head -n 1)
+# 1. 彻底清理旧的残留
+rm -rf package/nft-fullcone
+rm -rf temp_repo
 
-if [ -z "$FULLCONE_FIND" ]; then
-    echo "⚠️ Feeds 中缺失，正在执行强制手动拉取..."
-    # 使用比较稳定的开源仓库作为源码来源
-    git clone --depth 1 https://github.com/kiddin9/openwrt-packages.git temp_repo
-    if [ -d "temp_repo/nft-fullcone" ]; then
-        cp -r temp_repo/nft-fullcone package/
-        echo "✅ 手动拉取成功"
-    else
-        echo "❌ 克隆仓库成功但未找到 nft-fullcone 文件夹"
-        exit 1
-    fi
+# 2. 强制使用非交互模式克隆 (针对 GitHub Actions 优化)
+# 尝试从另一个比较全的源拉取，并只拉取最近的一次提交以节省空间
+export GIT_TERMINAL_PROMPT=0
+git clone --depth 1 https://github.com/kiddin9/openwrt-packages.git temp_repo || \
+git clone --depth 1 https://ghproxy.com/https://github.com/kiddin9/openwrt-packages.git temp_repo
+
+if [ -d "temp_repo/nft-fullcone" ]; then
+    cp -r temp_repo/nft-fullcone package/
+    echo "✅ [SUCCESS] nft-fullcone 源码已手动补全"
     rm -rf temp_repo
 else
-    echo "✅ Feeds 中已存在: $FULLCONE_FIND"
+    echo "❌ [ERROR] 无法从 temp_repo 找到 nft-fullcone"
+    # 最后的保命手段：如果上面的仓库都挂了，尝试从另一个源拉取
+    git clone --depth 1 https://github.com/sbwml/openwrt-nft-fullcone.git package/nft-fullcone
 fi
 
-# 检查 TurboACC
+# 3. 检查 TurboACC 状态
 TURBOACC_FIND=$(find feeds/ -name "luci-app-turboacc" -type d | head -n 1)
-if [ -n "$TURBOACC_FIND" ]; then
-    echo "✅ TurboACC 插件已就绪"
-else
-    echo "❌ TurboACC 插件缺失，尝试重新执行 add_turboacc.sh"
-    curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh -o add_turboacc.sh
-    bash add_turboacc.sh
+if [ -z "$TURBOACC_FIND" ]; then
+    echo "⚠️ TurboACC 缺失，正在强制拉取..."
+    # 直接拉取 Lean 版的插件源码
+    git clone --depth 1 https://github.com/coolsnowwolf/luci/tree/master/applications/luci-app-turboacc package/luci-app-turboacc
 fi
 
-# 最后强行修正 .config
-sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
-echo "CONFIG_PACKAGE_kmod-nft-fullcone=y" >> .config
-make defconfig
+# 4. 刷新索引并强制选中
+./scripts/feeds update -i
+./scripts/feeds install -a
 
-echo "======= 修复完成 ======="
+if [ -f .config ]; then
+    echo "正在强制注入 .config..."
+    sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
+    echo "CONFIG_PACKAGE_kmod-nft-fullcone=y" >> .config
+    sed -i '/CONFIG_PACKAGE_luci-app-turboacc/d' .config
+    echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+    make defconfig
+fi
+
+echo "======= 修复流程执行完毕 ======="
 # B. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
