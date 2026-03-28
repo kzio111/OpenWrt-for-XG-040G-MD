@@ -217,4 +217,4 @@ chmod +x files/etc/uci-defaults/99-custom-settings
 ./scripts/feeds install -a
 make oldconfig
 
-echo -e "${GREEN}🎉 [ALL SUCCESS] 嘉欣，你的 XG-040G-MD 编译环境已完美就绪！${NC}"
+echo -e "${GREEN}🎉 [ALL SUCCESS]XG-040G-MD 编译环境已完美就绪！${NC}"
