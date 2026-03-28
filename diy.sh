@@ -39,28 +39,103 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
         exit 1
     fi
 fi
-# 清理旧的残留，防止脚本冲突
-rm -rf package/luci-app-turboacc
-rm -rf package/turboacc-libs
+# ------------------------- 第一部分：清理 -------------------------
+info "清理旧的包文件..."
+rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
+rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
+rm -rf package/luci-app-turboacc 2>/dev/null || true
+rm -rf package/turboacc-libs 2>/dev/null || true
+rm -rf tmp 2>/dev/null || true
+info "清理完成。"
 
-# B. 直接拉取 TurboAcc 核心库 (使用 luci 分支适配新版 apk 架构)
-git clone --depth=1 -b luci https://github.com/chenmozhijin/turboacc package/luci-app-turboacc
-git clone --depth=1 https://github.com/chenmozhijin/turboacc-libs package/turboacc-libs
-# 4. 【核心修复】解决 kmod-nft-fullcone 依赖报错 (极致对齐)
-# =========================================================
-# A. 物理注入内核配置：确保内核 config 开启了 FullCone 支持
-# 针对 Airoha 6.12/6.6 内核，强制写入所有可能的 config 文件
-find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_NF_TABLES_NFT_FULLCONE=y' {}
-find target/linux/airoha/ -name "config-*" | xargs -i sed -i '$a CONFIG_PACKAGE_kmod-nft-fullcone=y' {}
+# ------------------------- 第二部分：更新 Feeds 并拉取组件 -------------------------
+info "更新 feeds 并安装所有包..."
+./scripts/feeds update -a || error "feeds update 失败"
+./scripts/feeds install -a || error "feeds install -a 失败"
 
-# B. 暴力修正 TurboAcc Makefile 依赖：
-# 确保插件要求的包名与内核生成的包名完全一致 (kmod-nft-fullcone)
-if [ -f "package/luci-app-turboacc/Makefile" ]; then
-    # 有时候版本后缀会导致识别失败，这里强制移除 Makefile 中可能存在的版本锁定
-    sed -i 's/+kmod-nft-fullcone.*$/+kmod-nft-fullcone/g' package/luci-app-turboacc/Makefile
-    # 如果还是编不过，备选方案是将依赖降级为 nft-core (保证通过编译)
-    # sed -i 's/kmod-nft-fullcone/kmod-nft-core/g' package/luci-app-turboacc/Makefile
+# 单独确保两个组件被安装
+./scripts/feeds install kmod-nft-fullcone || warn "kmod-nft-fullcone 在 feeds 中未找到"
+./scripts/feeds install luci-app-turboacc || warn "luci-app-turboacc 在 feeds 中未找到"
+
+# ------------------------- 第三方 turboacc 脚本（补全依赖） -------------------------
+info "下载并执行 turboacc 依赖补全脚本..."
+TEMP_SCRIPT="add_turboacc.sh"
+curl -sSL --connect-timeout 10 --retry 3 \
+    "https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh" \
+    -o "$TEMP_SCRIPT" || error "下载 add_turboacc.sh 失败"
+
+# 可选：添加脚本校验（如果已知期望的 SHA256，可在此处检查）
+# 由于原脚本未提供校验和，我们直接执行，但打印警告
+warn "正在执行外部脚本 $TEMP_SCRIPT，请确保来源可靠。"
+bash "$TEMP_SCRIPT" || error "add_turboacc.sh 执行失败"
+rm -f "$TEMP_SCRIPT"
+
+# ------------------------- 第三部分：组件状态检查与补救 -------------------------
+info "======= 检查组件拉取状态 ======="
+
+# 检查 kmod-nft-fullcone
+FULLCONE_PATH=""
+# 首先在 feeds 中查找（常见路径：feeds/packages/net/nft-fullcone 或 feeds/packages/kmod/nft-fullcone）
+FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit)
+if [ -n "$FULLCONE_PATH" ]; then
+    info "✅ kmod-nft-fullcone 已定位: $FULLCONE_PATH"
+else
+    warn "未在 feeds 中找到 kmod-nft-fullcone，尝试从备用源手动补全..."
+    # 备用源：从 kiddin9 仓库克隆 nft-fullcone 目录
+    TEMP_REPO="temp_repo_$$"
+    git clone --depth 1 --single-branch --branch master \
+        "https://github.com/kiddin9/openwrt-packages.git" "$TEMP_REPO" || {
+        error "备用源克隆失败，请手动添加 kmod-nft-fullcone 包。"
+    }
+    if [ -d "$TEMP_REPO/nft-fullcone" ]; then
+        cp -r "$TEMP_REPO/nft-fullcone" package/
+        info "已将 nft-fullcone 复制到 package/ 目录"
+    else
+        error "备用源中未找到 nft-fullcone 目录"
+    fi
+    rm -rf "$TEMP_REPO"
 fi
+
+# 检查 luci-app-turboacc
+TURBOACC_PATH=$(find feeds/ -type d -name "luci-app-turboacc" -print -quit)
+if [ -n "$TURBOACC_PATH" ]; then
+    info "✅ luci-app-turboacc 已定位: $TURBOACC_PATH"
+else
+    error "未找到 luci-app-turboacc，请检查 add_turboacc.sh 是否成功执行。"
+fi
+
+info "===================================="
+
+# ------------------------- 第四部分：注入编译配置 -------------------------
+info "正在更新 .config 编译配置..."
+
+# 备份原配置（可选）
+if [ -f .config ]; then
+    cp .config .config.bak.$(date +%Y%m%d_%H%M%S)
+    info "已备份原 .config 至 .config.bak.*"
+fi
+
+# 移除可能存在的旧配置项
+sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
+sed -i '/CONFIG_PACKAGE_luci-app-turboacc/d' .config
+sed -i '/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING/d' .config
+sed -i '/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_SHORTCUT_FE/d' .config
+
+# 添加新配置
+cat >> .config <<EOF
+CONFIG_PACKAGE_kmod-nft-fullcone=y
+CONFIG_PACKAGE_luci-app-turboacc=y
+CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y
+CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_SHORTCUT_FE=y
+EOF
+
+info "已添加 turboacc 相关配置项"
+
+# 执行 defconfig 使配置生效并自动补全依赖
+make defconfig || error "make defconfig 失败"
+
+info "所有步骤执行完毕！现在可以运行 'make' 开始编译。"
+
 
 # C. 锁定配置到 .config
 add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
