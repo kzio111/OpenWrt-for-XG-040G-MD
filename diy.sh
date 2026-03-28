@@ -14,58 +14,64 @@ add_config() {
 echo "-------------------------------------------------------"
 if [ -f "../feeds.conf.default-25.12" ]; then
     cp -f ../feeds.conf.default-25.12 feeds.conf.default
-    echo "✅ [SUCCESS] 已识别并挂载自定义 Feeds 配置文件"
+    echo "✅ [SUCCESS] 已挂载自定义 Feeds 配置文件"
 else
-    echo "❌ [ERROR] 未找到 feeds.conf.default-25.12，将尝试使用默认 feeds"
+    echo "⚠️ [NOTICE] 未找到自定义 feeds 文件，使用默认源"
 fi
 
-# 自动修正源地址为 ImmortalWrt Master
+# A. 修正源地址为 ImmortalWrt Master
 sed -i 's|https://github.com/openwrt/packages.git;openwrt-25.12|https://github.com/immortalwrt/packages.git;master|g' feeds.conf.default
 sed -i 's|https://github.com/openwrt/luci.git;openwrt-25.12|https://github.com/immortalwrt/luci.git;master|g' feeds.conf.default
 
-# 更新 Feeds
-./scripts/feeds update -a
+# B. 【关键修复】剔除报错的 telephony 源 (反正你也不用 VoIP 电话)
+sed -i '/telephony/d' feeds.conf.default
+echo "✅ [FIX] 已剔除可能导致报错的 telephony 仓库"
+
+# C. 执行 Feeds 更新并增加重试逻辑
+echo "正在更新 Feeds 列表..."
+n=0
+until [ $n -ge 3 ]
+do
+    ./scripts/feeds update -a && break
+    n=$[$n+1]
+    echo "⚠️ [RETRY] Feeds 更新失败，正在进行第 $n 次重试..."
+    sleep 2
+done
+
 if [ $? -eq 0 ]; then
     echo "✅ [SUCCESS] Feeds 列表更新成功"
 else
-    echo "❌ [ERROR] Feeds 列表更新失败，请检查网络或 feeds.conf.default 内容"
+    echo "❌ [ERROR] Feeds 更新彻底失败，请检查 feeds.conf.default 的 URL"
 fi
 
 ./scripts/feeds install -a
-[ $? -eq 0 ] && echo "✅ [SUCCESS] Feeds 依赖安装完成" || echo "❌ [ERROR] Feeds 依赖安装过程中出现错误"
+[ $? -eq 0 ] && echo "✅ [SUCCESS] Feeds 依赖安装完成" || echo "❌ [ERROR] Feeds 安装过程中有缺失"
 
 # =========================================================
-# 2. 插件拉取 (带成功/失败双重提示)
+# 2. 插件拉取 (带拉取结果校验)
 # =========================================================
 
 # A. 拉取 Airoha NPU 专项插件
 echo "-------------------------------------------------------"
-echo "正在尝试拉取 Airoha NPU 插件..."
 rm -rf package/temp_npu
 git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
-
 if [ $? -eq 0 ]; then
     plugin_src=$(find package/temp_npu -type d -name "luci-app-airoha-npu" -print -quit)
     if [ -n "$plugin_src" ]; then
         cp -r "$plugin_src" package/
-        echo "✅ [SUCCESS] Airoha NPU 插件拉取并提取成功"
+        echo "✅ [SUCCESS] Airoha NPU 插件提取成功"
     else
-        echo "❌ [ERROR] 仓库已克隆，但未能在其中找到 luci-app-airoha-npu 目录"
+        echo "❌ [ERROR] 仓库内未找到 NPU 插件目录"
     fi
     rm -rf package/temp_npu
 else
-    echo "❌ [ERROR] Airoha NPU 仓库 Git 克隆失败，请检查 URL 或 GitHub 连接"
+    echo "❌ [ERROR] NPU 仓库 Git 克隆失败"
 fi
 
 # B. 挂载内置 TurboACC
-echo "-------------------------------------------------------"
-echo "正在尝试从 Feeds 挂载内置 TurboACC..."
+echo "正在挂载内置 TurboACC..."
 ./scripts/feeds install -p luci luci-app-turboacc
-if [ $? -eq 0 ]; then
-    echo "✅ [SUCCESS] 已成功从内置 Feeds 挂载 TurboACC"
-else
-    echo "❌ [ERROR] 内置 TurboACC 挂载失败！请确认 feeds.conf.default 是否正确指向了 ImmortalWrt"
-fi
+[ $? -eq 0 ] && echo "✅ [SUCCESS] 已成功挂载内置 TurboACC" || echo "❌ [ERROR] 内置 TurboACC 挂载失败"
 
 # C. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
