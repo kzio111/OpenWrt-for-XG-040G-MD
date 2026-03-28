@@ -39,111 +39,82 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
         exit 1
     fi
 fi
-# ------------------------- 第一部分：清理 -------------------------
-info "清理旧的包文件..."
+
+# ------------------------- TurboAcc 优化部分（开始） -------------------------
+# 说明：以下代码用于拉取并配置 turboacc 相关组件，已优化为更可靠的下载方式
+
+# 清理旧包
+echo "清理旧的 turboacc 相关文件..."
 rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
 rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
 rm -rf package/luci-app-turboacc 2>/dev/null || true
 rm -rf package/turboacc-libs 2>/dev/null || true
 rm -rf tmp 2>/dev/null || true
-info "清理完成。"
 
-# ------------------------- 第二部分：更新 Feeds 并拉取组件 -------------------------
-info "更新 feeds 并安装所有包..."
-./scripts/feeds update -a || error "feeds update 失败"
-./scripts/feeds install -a || error "feeds install -a 失败"
+# 更新 feeds 并安装组件
+echo "更新 feeds 并安装所有包..."
+./scripts/feeds update -a || { echo "feeds update 失败"; exit 1; }
+./scripts/feeds install -a || { echo "feeds install -a 失败"; exit 1; }
 
-# 单独确保两个组件被安装
-./scripts/feeds install kmod-nft-fullcone || warn "kmod-nft-fullcone 在 feeds 中未找到"
-./scripts/feeds install luci-app-turboacc || warn "luci-app-turboacc 在 feeds 中未找到"
+# 尝试单独安装（允许失败，后续补救）
+./scripts/feeds install kmod-nft-fullcone 2>/dev/null || echo "kmod-nft-fullcone 在 feeds 中未找到"
+./scripts/feeds install luci-app-turboacc 2>/dev/null || echo "luci-app-turboacc 在 feeds 中未找到"
 
-# ------------------------- 第三方 turboacc 脚本（补全依赖） -------------------------
-info "下载并执行 turboacc 依赖补全脚本..."
+# 下载并执行第三方 turboacc 依赖补全脚本
+echo "下载并执行 turboacc 依赖补全脚本..."
 TEMP_SCRIPT="add_turboacc.sh"
-curl -sSL --connect-timeout 10 --retry 3 \
+curl -fsSL --connect-timeout 10 --retry 3 \
     "https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh" \
-    -o "$TEMP_SCRIPT" || error "下载 add_turboacc.sh 失败"
+    -o "$TEMP_SCRIPT" || { echo "下载 add_turboacc.sh 失败"; exit 1; }
 
-# 可选：添加脚本校验（如果已知期望的 SHA256，可在此处检查）
-# 由于原脚本未提供校验和，我们直接执行，但打印警告
-warn "正在执行外部脚本 $TEMP_SCRIPT，请确保来源可靠。"
-bash "$TEMP_SCRIPT" || error "add_turboacc.sh 执行失败"
+echo "正在执行外部脚本 $TEMP_SCRIPT（请确保来源可靠）..."
+bash "$TEMP_SCRIPT" || { echo "add_turboacc.sh 执行失败"; exit 1; }
 rm -f "$TEMP_SCRIPT"
 
-# ------------------------- 第三部分：组件状态检查与补救 -------------------------
-info "======= 检查组件拉取状态 ======="
+# 重新生成 feeds 索引，确保新加入的包被识别
+./scripts/feeds update -i || echo "feeds update -i 警告"
+./scripts/feeds install -a || { echo "二次 feeds install 失败"; exit 1; }
 
 # 检查 kmod-nft-fullcone
-FULLCONE_PATH=""
-# 首先在 feeds 中查找（常见路径：feeds/packages/net/nft-fullcone 或 feeds/packages/kmod/nft-fullcone）
-FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit)
+FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit 2>/dev/null || true)
 if [ -n "$FULLCONE_PATH" ]; then
-    info "✅ kmod-nft-fullcone 已定位: $FULLCONE_PATH"
+    echo "✅ kmod-nft-fullcone 已定位: $FULLCONE_PATH"
 else
-    warn "未在 feeds 中找到 kmod-nft-fullcone，尝试从备用源手动补全..."
-    # 备用源：从 kiddin9 仓库克隆 nft-fullcone 目录
-    TEMP_REPO="temp_repo_$$"
-    git clone --depth 1 --single-branch --branch master \
-        "https://github.com/kiddin9/openwrt-packages.git" "$TEMP_REPO" || {
-        error "备用源克隆失败，请手动添加 kmod-nft-fullcone 包。"
-    }
-    if [ -d "$TEMP_REPO/nft-fullcone" ]; then
-        cp -r "$TEMP_REPO/nft-fullcone" package/
-        info "已将 nft-fullcone 复制到 package/ 目录"
+    echo "⚠️ 未在 feeds 中找到 kmod-nft-fullcone，尝试手动下载..."
+    # 使用 curl 直接下载 nft-fullcone 的 Makefile 和源码（避免 git clone 认证问题）
+    mkdir -p package/kmod-nft-fullcone
+    cd package/kmod-nft-fullcone
+    BASE_URL="https://raw.githubusercontent.com/kiddin9/openwrt-packages/master/nft-fullcone"
+    files=("Makefile" "src/nft-fullcone.c" "src/nft-fullcone.h" "src/nft-fullcone.8")
+    for f in "${files[@]}"; do
+        mkdir -p "$(dirname "$f")"
+        curl -fsSL --connect-timeout 10 --retry 3 "$BASE_URL/$f" -o "$f" || echo "下载 $f 失败，请稍后重试"
+    done
+    cd - >/dev/null
+    if [ -f package/kmod-nft-fullcone/Makefile ]; then
+        echo "✅ nft-fullcone 已手动放入 package/kmod-nft-fullcone/"
     else
-        error "备用源中未找到 nft-fullcone 目录"
+        echo "❌ 手动下载 nft-fullcone 失败，请检查网络或手动添加该包"
+        exit 1
     fi
-    rm -rf "$TEMP_REPO"
 fi
 
 # 检查 luci-app-turboacc
-TURBOACC_PATH=$(find feeds/ -type d -name "luci-app-turboacc" -print -quit)
+TURBOACC_PATH=$(find feeds/ -type d -name "luci-app-turboacc" -print -quit 2>/dev/null || true)
+if [ -z "$TURBOACC_PATH" ]; then
+    TURBOACC_PATH=$(find package/ -type d -name "luci-app-turboacc" -print -quit 2>/dev/null || true)
+fi
 if [ -n "$TURBOACC_PATH" ]; then
-    info "✅ luci-app-turboacc 已定位: $TURBOACC_PATH"
+    echo "✅ luci-app-turboacc 已定位: $TURBOACC_PATH"
 else
-    error "未找到 luci-app-turboacc，请检查 add_turboacc.sh 是否成功执行。"
+    echo "❌ 未找到 luci-app-turboacc，请检查 add_turboacc.sh 是否成功执行"
+    exit 1
 fi
 
-info "===================================="
+echo "======= TurboAcc 组件检查完成 ======="
+# ------------------------- TurboAcc 优化部分（结束） -------------------------
 
-# ------------------------- 第四部分：注入编译配置 -------------------------
-info "正在更新 .config 编译配置..."
-
-# 备份原配置（可选）
-if [ -f .config ]; then
-    cp .config .config.bak.$(date +%Y%m%d_%H%M%S)
-    info "已备份原 .config 至 .config.bak.*"
-fi
-
-# 移除可能存在的旧配置项
-sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
-sed -i '/CONFIG_PACKAGE_luci-app-turboacc/d' .config
-sed -i '/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING/d' .config
-sed -i '/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_SHORTCUT_FE/d' .config
-
-# 添加新配置
-cat >> .config <<EOF
-CONFIG_PACKAGE_kmod-nft-fullcone=y
-CONFIG_PACKAGE_luci-app-turboacc=y
-CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y
-CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_SHORTCUT_FE=y
-EOF
-
-info "已添加 turboacc 相关配置项"
-
-# 执行 defconfig 使配置生效并自动补全依赖
-make defconfig || error "make defconfig 失败"
-
-info "所有步骤执行完毕！现在可以运行 'make' 开始编译。"
-
-
-# C. 锁定配置到 .config
-add_config "CONFIG_PACKAGE_luci-app-turboacc=y"
-add_config "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y"
-add_config "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_NFTABLES_NAT=y"
-add_config "CONFIG_PACKAGE_kmod-nft-fullcone=y"
-
-# D. 拉取 Aurora 主题
+# B. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
     git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
