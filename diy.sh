@@ -9,49 +9,106 @@ add_config() {
     sed -i "/^# $key is not set/d" .config
     echo "$1" >> .config
 }
+# =========================================================
+# 1. 修复 Kconfig 循环依赖并更新 Feeds
+# =========================================================
 rm -rf feeds/packages/utils/fwupd
-# 1. 环境预处理：强制写入你提供的 Feeds 配置
-# =========================================================
-echo "-------------------------------------------------------"
-cat <<'EOF' > feeds.conf.default
-src-git packages https://github.com/immortalwrt/packages.git;master
-src-git luci https://github.com/immortalwrt/luci.git;master
-src-git routing https://github.com/immortalwrt/routing.git;master
-src-git telephony https://github.com/immortalwrt/telephony.git;master
-EOF
-echo "✅ [SUCCESS] Feeds 配置文件已根据输入内容强制同步"
-
-# 解决 telephony 导致 find 报错的问题：直接在 update 前从配置中剔除它（如果你不需要 VoIP）
-# 如果你需要 telephony，请注释掉下面这一行
-sed -i '/telephony/d' feeds.conf.default
-
-# 清理旧索引并重新拉取
-rm -rf feeds/
-./scripts/feeds update -a && ./scripts/feeds install -a
-echo "✅ [SUCCESS] Feeds 依赖已完全刷新"
+./scripts/feeds update -a
+./scripts/feeds install -a
 
 # =========================================================
-# 2. 插件同步 (带路径存在性校验)
+# 2. 删除引起依赖警告的无用包（消除编译日志噪音）
+#!/bin/bash
+
+# =========================================================
+# 辅助函数：强力替换/添加 .config 配置 (物理注入)
+# =========================================================
+add_config() {
+    local key=$(echo "$1" | cut -d'=' -f1)
+    sed -i "/^$key=/d" .config
+    sed -i "/^# $key is not set/d" .config
+    echo "$1" >> .config
+}
+rm -rf feeds/packages/utils/fwupd
+# =========================================================
+# 1. 修复 Kconfig 循环依赖并更新 Feeds
+# =========================================================
+rm -rf feeds/packages/utils/fwupd
+./scripts/feeds update -a
+./scripts/feeds install -a
+
+
+# 2. 删除引起依赖警告的无用包（消除编译日志噪音）
+# =========================================================
+echo "正在清理无用的包依赖（消除警告）..."
+# 这些包缺失 python 依赖，且路由器固件通常不需要
+rm -rf feeds/packages/utils/fwupd
+rm -rf feeds/packages/net/fail2ban
+rm -rf feeds/packages/net/onionshare-cli
+rm -rf feeds/packages/utils/setools
+# 多媒体包，若不需要也可删除
+rm -rf feeds/packages/multimedia/gst1-plugins-base
+# 其他可能引起警告的包可以继续添加
+echo "清理完成。"
+
+# =========================================================
+# 3. 拉取自定义插件（NPU 从你的仓库提取）
 # =========================================================
 
-# A. 拉取 Airoha NPU 专项插件 (针对 XG-040G-MD)
-echo "-------------------------------------------------------"
-rm -rf package/temp_npu
-git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
-if [ $? -eq 0 ]; then
-    [ -d "package/temp_npu/luci-app-airoha-npu" ] && cp -r package/temp_npu/luci-app-airoha-npu package/
-    echo "✅ [SUCCESS] Airoha NPU 插件提取完成"
+# A. 拉取 Airoha NPU 专项插件（从你的主仓库提取，兼容可能的目录结构调整）
+if [ ! -d "package/luci-app-airoha-npu" ]; then
+    echo "正在从你的仓库拉取 Airoha NPU 插件..."
+    git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
+    if [ $? -eq 0 ]; then
+        # 动态查找 luci-app-airoha-npu 目录（可能在 package/ 下或更深）
+        plugin_src=$(find package/temp_npu/package -type d -name "luci-app-airoha-npu" -print -quit)
+        if [ -n "$plugin_src" ]; then
+            mv "$plugin_src" package/
+            rm -rf package/temp_npu
+            echo "✅ [SUCCESS] Airoha NPU 插件已就绪"
+        else
+            echo "❌ [ERROR] 在仓库中未找到 luci-app-airoha-npu 目录"
+            exit 1
+        fi
+    else
+        echo "❌ [ERROR] 克隆仓库失败，请检查网络或仓库地址"
+        exit 1
+    fi
 fi
-rm -rf package/temp_npu
+# =========================================================
+echo "正在清理无用的包依赖（消除警告）..."
+# 这些包缺失 python 依赖，且路由器固件通常不需要
+rm -rf feeds/packages/net/fail2ban
+rm -rf feeds/packages/net/onionshare-cli
+rm -rf feeds/packages/utils/setools
+# 多媒体包，若不需要也可删除
+rm -rf feeds/packages/multimedia/gst1-plugins-base
+# 其他可能引起警告的包可以继续添加
+echo "清理完成。"
 
-# B. 挂载内置 TurboACC (强制从 luci feed 安装)
-echo "正在深度挂载 TurboACC..."
-./scripts/feeds install -p luci luci-app-turboacc
-if [ -d "package/feeds/luci/luci-app-turboacc" ]; then
-    echo "✅ [SUCCESS] 已确认 TurboACC 挂载成功 (内置源)"
-else
-    echo "⚠️ [WARNING] 内置源未找到，尝试外部仓库兜底..."
-    git clone --depth=1 https://github.com/chenhw2/luci-app-turboacc.git package/luci-app-turboacc
+# =========================================================
+# 3. 拉取自定义插件（NPU 从你的仓库提取）
+# =========================================================
+
+# A. 拉取 Airoha NPU 专项插件（从你的主仓库提取，兼容可能的目录结构调整）
+if [ ! -d "package/luci-app-airoha-npu" ]; then
+    echo "正在从你的仓库拉取 Airoha NPU 插件..."
+    git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
+    if [ $? -eq 0 ]; then
+        # 动态查找 luci-app-airoha-npu 目录（可能在 package/ 下或更深）
+        plugin_src=$(find package/temp_npu/package -type d -name "luci-app-airoha-npu" -print -quit)
+        if [ -n "$plugin_src" ]; then
+            mv "$plugin_src" package/
+            rm -rf package/temp_npu
+            echo "✅ [SUCCESS] Airoha NPU 插件已就绪"
+        else
+            echo "❌ [ERROR] 在仓库中未找到 luci-app-airoha-npu 目录"
+            exit 1
+        fi
+    else
+        echo "❌ [ERROR] 克隆仓库失败，请检查网络或仓库地址"
+        exit 1
+    fi
 fi
 
 # C. 拉取 Aurora 主题
