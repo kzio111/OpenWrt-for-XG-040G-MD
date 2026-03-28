@@ -19,15 +19,6 @@ add_config() {
 # 2. 删除引起警告的无用包（消除编译日志噪音）
 echo "正在清理无用的包依赖（消除警告）..."
 rm -rf feeds/packages/utils/fwupd
-rm -rf feeds/packages/multimedia/gst1-plugins-base
-rm -rf feeds/packages/net/fail2ban
-rm -rf feeds/packages/net/onionshare-cli
-rm -rf feeds/packages/utils/setools
-# 若 bmx7、olsrd 等也不需要，可一并删除
-rm -rf feeds/packages/net/bmx7*
-rm -rf feeds/luci/applications/luci-app-bmx7
-rm -rf feeds/packages/net/olsrd
-rm -rf feeds/luci/applications/luci-app-olsr*
 echo "清理完成。"
 
 # =========================================================
@@ -53,71 +44,20 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
 fi
 
 # =========================================================
-# 4. TurboAcc 优化（使用 tarball 避免 git 认证）
+# 4. TurboAcc 集成（使用指定命令，简化流程）
 # =========================================================
-echo "清理旧的 turboacc 相关文件..."
+echo "正在使用 TurboAcc 脚本集成（chenmozhijin/turboacc）..."
+# 清理旧文件（可选）
 rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
 rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
 rm -rf package/luci-app-turboacc 2>/dev/null || true
 rm -rf package/turboacc-libs 2>/dev/null || true
 rm -rf tmp 2>/dev/null || true
 
-# 手动放置 luci-app-turboacc（避免 add_turboacc.sh 中的 git clone）
-if [ ! -d "package/luci-app-turboacc" ]; then
-    echo "⚠️ 未找到 luci-app-turboacc，尝试手动下载 tarball..."
-    mkdir -p package/luci-app-turboacc
-    cd package/luci-app-turboacc
-    TARBALL_URL="https://github.com/kiddin9/openwrt-packages/archive/refs/heads/master.tar.gz"
-    curl -fsSL --connect-timeout 10 --retry 5 --retry-delay 2 "$TARBALL_URL" -o master.tar.gz || {
-        echo "❌ 下载压缩包失败，请检查网络或手动添加 luci-app-turboacc 包"
-        exit 1
-    }
-    tar -xzf master.tar.gz --strip-components=2 -C . "openwrt-packages-master/luci-app-turboacc" 2>/dev/null
-    rm -f master.tar.gz
-    cd - >/dev/null
-    if [ -f package/luci-app-turboacc/Makefile ]; then
-        echo "✅ luci-app-turboacc 已手动放置到 package/luci-app-turboacc/"
-    else
-        echo "❌ 手动添加 luci-app-turboacc 失败"
-        exit 1
-    fi
-fi
-
-# 下载并执行第三方 turboacc 依赖补全脚本
-echo "下载并执行 turboacc 依赖补全脚本..."
-TEMP_SCRIPT="add_turboacc.sh"
-curl -fsSL --connect-timeout 10 --retry 3 \
-    "https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh" \
-    -o "$TEMP_SCRIPT" || { echo "下载 add_turboacc.sh 失败"; exit 1; }
-
-echo "正在执行外部脚本 $TEMP_SCRIPT（请确保来源可靠）..."
-bash "$TEMP_SCRIPT" || { echo "add_turboacc.sh 执行失败"; exit 1; }
-rm -f "$TEMP_SCRIPT"
-
-# 手动放置 kmod-nft-fullcone
-if [ ! -d "package/kmod-nft-fullcone" ]; then
-    echo "⚠️ 未找到 kmod-nft-fullcone，尝试手动下载 tarball..."
-    mkdir -p package/kmod-nft-fullcone
-    cd package/kmod-nft-fullcone
-    TARBALL_URL="https://github.com/kiddin9/openwrt-packages/archive/refs/heads/master.tar.gz"
-    curl -fsSL --connect-timeout 10 --retry 5 --retry-delay 2 "$TARBALL_URL" -o master.tar.gz || {
-        echo "❌ 下载压缩包失败，请检查网络或手动添加 kmod-nft-fullcone 包"
-        exit 1
-    }
-    tar -xzf master.tar.gz --strip-components=2 -C . "openwrt-packages-master/nft-fullcone" 2>/dev/null || \
-    tar -xzf master.tar.gz --strip-components=2 -C . "openwrt-packages-master/kmod-nft-fullcone" 2>/dev/null
-    rm -f master.tar.gz
-    cd - >/dev/null
-    if [ -d package/nft-fullcone ] && [ ! -d package/kmod-nft-fullcone ]; then
-        mv package/nft-fullcone package/kmod-nft-fullcone
-    fi
-    if [ -f package/kmod-nft-fullcone/Makefile ]; then
-        echo "✅ kmod-nft-fullcone 已成功放置到 package/kmod-nft-fullcone/"
-    else
-        echo "❌ 手动添加 kmod-nft-fullcone 失败"
-        exit 1
-    fi
-fi
+# 执行 TurboAcc 脚本（使用 --no-sfe 参数）
+curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && \
+    bash add_turboacc.sh --no-sfe
+rm -f add_turboacc.sh
 
 # 重新生成 feeds 索引，确保新加入的包被识别
 ./scripts/feeds update -i
