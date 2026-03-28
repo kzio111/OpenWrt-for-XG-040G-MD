@@ -45,11 +45,22 @@ fi
 
 # =========================================================
 # =========================================================
+# =========================================================
 # 4. TurboAcc 集成（使用 chenmozhijin/turboacc 仓库）
 # =========================================================
-echo "正在使用 TurboAcc 脚本集成（chenmozhijin/turboacc）..."
+echo -e "\033[36m正在使用 TurboAcc 脚本集成（chenmozhijin/turboacc）...\033[0m"
 
-# 清理旧文件（可选）
+# [修复核心报错]：解决新版 OpenWrt 内核补丁目录规范冲突
+echo "正在检测并修复内核补丁目录冲突..."
+if [ -d "target/linux/generic/patches" ]; then
+    mkdir -p target/linux/generic/pending-6.12
+    # 将旧规范 patches 移入 pending，防止 target/linux 报错 exit 1
+    cp -rn target/linux/generic/patches/* target/linux/generic/pending-6.12/ 2>/dev/null
+    rm -rf target/linux/generic/patches
+    echo -e "\033[32m✅ 内核补丁目录冲突已修复\033[0m"
+fi
+
+# 清理旧文件
 rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
 rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
 rm -rf package/luci-app-turboacc 2>/dev/null || true
@@ -57,18 +68,36 @@ rm -rf package/turboacc-libs 2>/dev/null || true
 rm -rf tmp 2>/dev/null || true
 
 # 执行 TurboAcc 脚本（--no-sfe 参数）
-if curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && \
+if curl -fsSL --connect-timeout 10 --retry 3 \
+    "https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh" -o add_turboacc.sh && \
    bash add_turboacc.sh --no-sfe; then
-    echo -e "\033[32m🎉 [SUCCESS] TurboAcc 脚本集成执行成功！\033[0m"
-    echo -e "\033[32m✅ NFTables / Flow Offload 已准备就绪\033[0m"
+    echo -e "\033[32m*******************************************************"
+    echo "* *"
+    echo "* 🎉  TurboAcc 脚本集成执行成功！                      *"
+    echo "* NFTables / Flow Offload 已准备就绪              *"
+    echo "* *"
+    echo "*******************************************************\033[0m"
 else
-    echo -e "\033[31m❌ [ERROR] TurboAcc 脚本执行失败，请检查网络连接或仓库地址。\033[0m"
+    echo -e "\033[31m❌ [ERROR] TurboAcc 脚本执行失败，请检查网络或仓库地址。\033[0m"
     exit 1
 fi
-
 rm -f add_turboacc.sh
 
-# 重新生成 feeds 索引，确保新加入的包被识别
+# ========== 手动修复 luci-app-turboacc 的 Makefile（移除 SFE 依赖）==========
+echo "正在修复 luci-app-turboacc 的 Makefile，强制适配 6.12 内核..."
+# 尝试定位真正的 Makefile 路径
+TURBO_PATH=$(find package -name "luci-app-turboacc" -type d | head -n 1)
+if [ -n "$TURBO_PATH" ] && [ -f "$TURBO_PATH/Makefile" ]; then
+    sed -i '/kmod-fast-classifier/d' "$TURBO_PATH/Makefile"
+    sed -i '/kmod-shortcut-fe/d' "$TURBO_PATH/Makefile"
+    echo -e "\033[32m✅ 已成功移除 $TURBO_PATH/Makefile 中的 SFE 依赖\033[0m"
+else
+    echo -e "\033[33m⚠️ 未找到 TurboAcc Makefile，可能已被脚本自动集成，跳过手动修复。\033[0m"
+fi
+
+# [此处保留你之前写的 kmod-nft-fullcone 手动下载逻辑...]
+
+# 重新生成 feeds 索引
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 # =========================================================
