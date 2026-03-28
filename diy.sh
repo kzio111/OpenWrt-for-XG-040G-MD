@@ -44,9 +44,11 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
 fi
 
 # =========================================================
-# 4. TurboAcc 集成（使用指定命令，简化流程）
+# =========================================================
+# 4. TurboAcc 集成（使用 chenmozhijin/turboacc 仓库）
 # =========================================================
 echo "正在使用 TurboAcc 脚本集成（chenmozhijin/turboacc）..."
+
 # 清理旧文件（可选）
 rm -rf package/feeds/luci/luci-app-turboacc 2>/dev/null || true
 rm -rf package/feeds/packages/kmod-nft-fullcone 2>/dev/null || true
@@ -54,15 +56,21 @@ rm -rf package/luci-app-turboacc 2>/dev/null || true
 rm -rf package/turboacc-libs 2>/dev/null || true
 rm -rf tmp 2>/dev/null || true
 
-# 执行 TurboAcc 脚本（使用 --no-sfe 参数）
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && \
-    bash add_turboacc.sh --no-sfe
+# 执行 TurboAcc 脚本（--no-sfe 参数）
+if curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && \
+   bash add_turboacc.sh --no-sfe; then
+    echo -e "\033[32m🎉 [SUCCESS] TurboAcc 脚本集成执行成功！\033[0m"
+    echo -e "\033[32m✅ NFTables / Flow Offload 已准备就绪\033[0m"
+else
+    echo -e "\033[31m❌ [ERROR] TurboAcc 脚本执行失败，请检查网络连接或仓库地址。\033[0m"
+    exit 1
+fi
+
 rm -f add_turboacc.sh
 
 # 重新生成 feeds 索引，确保新加入的包被识别
 ./scripts/feeds update -i
 ./scripts/feeds install -a
-
 # =========================================================
 # 5. 拉取 Aurora 主题（可选）
 # =========================================================
