@@ -1,2 +1,4 @@
 src-git packages https://github.com/openwrt/packages.git;openwrt-25.12
 src-git luci https://github.com/openwrt/luci.git;openwrt-25.12
+src-git kenzo https://github.com/kenzok8/openwrt-packages.git
+src-git small https://github.com/kenzok8/small.git
