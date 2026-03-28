@@ -39,42 +39,36 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
         exit 1
     fi
 fi
-# 检查 kmod-nft-fullcone
-FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit 2>/dev/null || true)
-if [ -n "$FULLCONE_PATH" ]; then
-    echo "✅ kmod-nft-fullcone 已定位: $FULLCONE_PATH"
+echo "======= 正在手动构建 nft-fullcone 编译环境 ======="
+
+# 1. 建立目录结构
+rm -rf package/nft-fullcone
+mkdir -p package/nft-fullcone/src
+
+# 2. 直接拉取该仓库的源码文件
+# 我们只取其中的核心驱动代码，避免整个仓库克隆带来的权限或路径问题
+RAW_URL="https://raw.githubusercontent.com/fullcone-nat-nftables/nft-fullcone/master"
+
+curl -sSL "${RAW_URL}/src/nft_expr_fullcone.c" -o package/nft-fullcone/src/nft_expr_fullcone.c
+curl -sSL "${RAW_URL}/Makefile" -o package/nft-fullcone/src/Makefile
+
+# 3. 【关键】下载或创建 OpenWrt 专用的 Makefile
+# 由于该仓库本身没有 OpenWrt 的顶级 Makefile，我们需要从成熟源补一个
+# 这里从比较稳定的镜像源拉取一个适配好的 Makefile
+curl -sSL https://raw.githubusercontent.com/kiddin9/openwrt-packages/master/nft-fullcone/Makefile -o package/nft-fullcone/Makefile
+
+# 4. 验证文件完整性
+if [ -f "package/nft-fullcone/Makefile" ] && [ -f "package/nft-fullcone/src/nft_expr_fullcone.c" ]; then
+    echo "✅ [SUCCESS] nft-fullcone 源码与 OpenWrt 编译脚本已就绪"
 else
-    echo "⚠️ 未在 feeds 中找到 kmod-nft-fullcone，尝试手动下载..."
-    
-    # 使用 curl 直接下载仓库压缩包（无需 Git）
-    mkdir -p package/kmod-nft-fullcone
-    cd package/kmod-nft-fullcone
-    TARBALL_URL="https://github.com/kiddin9/openwrt-packages/archive/refs/heads/master.tar.gz"
-    echo "正在下载仓库压缩包..."
-    curl -fsSL --connect-timeout 10 --retry 5 --retry-delay 2 "$TARBALL_URL" -o master.tar.gz || {
-        echo "❌ 下载压缩包失败，请检查网络或手动添加 kmod-nft-fullcone 包"
-        exit 1
-    }
-    
-    # 尝试解压 nft-fullcone 目录（支持两种可能的目录名）
-    tar -xzf master.tar.gz --strip-components=2 -C . "openwrt-packages-master/nft-fullcone" 2>/dev/null || \
-    tar -xzf master.tar.gz --strip-components=2 -C . "openwrt-packages-master/kmod-nft-fullcone" 2>/dev/null
-    rm -f master.tar.gz
-    cd - >/dev/null
-
-    # 如果解压后目录名是 nft-fullcone，重命名为 kmod-nft-fullcone
-    if [ -d package/nft-fullcone ] && [ ! -d package/kmod-nft-fullcone ]; then
-        mv package/nft-fullcone package/kmod-nft-fullcone
-    fi
-
-    # 最终检查
-    if [ -f package/kmod-nft-fullcone/Makefile ]; then
-        echo "✅ kmod-nft-fullcone 已成功放置到 package/kmod-nft-fullcone/"
-    else
-        echo "❌ 手动添加 kmod-nft-fullcone 失败，请检查网络或手动添加该包"
-        exit 1
-    fi
+    echo "❌ [ERROR] 拉取失败，尝试备用 Git 克隆方案..."
+    # 如果 curl 失败，尝试直接 clone 同名适配库
+    git clone --depth 1 https://github.com/sbwml/openwrt-nft-fullcone.git package/nft-fullcone
 fi
+
+# 5. 刷新环境
+./scripts/feeds update -i
+./scripts/feeds install -a
 # B. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
