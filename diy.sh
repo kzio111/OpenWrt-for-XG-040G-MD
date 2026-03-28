@@ -9,7 +9,7 @@ add_config() {
     sed -i "/^# $key is not set/d" .config
     echo "$1" >> .config
 }
-
+rm -rf feeds/packages/utils/fwupd
 # 1. 环境预处理：强制写入你提供的 Feeds 配置
 # =========================================================
 echo "-------------------------------------------------------"
