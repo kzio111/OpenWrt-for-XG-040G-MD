@@ -39,7 +39,6 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
         exit 1
     fi
 fi
-
 # 检查 kmod-nft-fullcone
 FULLCONE_PATH=$(find feeds/ -type d -name "kmod-nft-fullcone" -print -quit 2>/dev/null || true)
 if [ -n "$FULLCONE_PATH" ]; then
@@ -47,7 +46,7 @@ if [ -n "$FULLCONE_PATH" ]; then
 else
     echo "⚠️ 未在 feeds 中找到 kmod-nft-fullcone，尝试手动下载..."
     
-    # 使用 curl 下载仓库压缩包（无需 Git 认证）
+    # 使用 curl 直接下载仓库压缩包（无需 Git）
     mkdir -p package/kmod-nft-fullcone
     cd package/kmod-nft-fullcone
     TARBALL_URL="https://github.com/kiddin9/openwrt-packages/archive/refs/heads/master.tar.gz"
