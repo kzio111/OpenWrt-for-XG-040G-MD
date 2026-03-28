@@ -40,50 +40,53 @@ if [ ! -d "package/luci-app-airoha-npu" ]; then
     fi
 fi
 
-echo "======= 开始修复 nft-fullcone (增强版) ======="
+echo "======= 正在执行 AN7581DT 依赖修复 (25.12 适配版) ======="
 
-# 1. 彻底清理旧的残留
+# 1. 彻底清理旧的无效文件夹
 rm -rf package/nft-fullcone
+rm -rf package/luci-app-turboacc
 rm -rf temp_repo
 
-# 2. 强制使用非交互模式克隆 (针对 GitHub Actions 优化)
-# 尝试从另一个比较全的源拉取，并只拉取最近的一次提交以节省空间
-export GIT_TERMINAL_PROMPT=0
-git clone --depth 1 https://github.com/kiddin9/openwrt-packages.git temp_repo || \
-git clone --depth 1 https://ghproxy.com/https://github.com/kiddin9/openwrt-packages.git temp_repo
+# 2. 拉取 nft-fullcone (使用专门的独立仓库，避免克隆整个 packages)
+# 这个仓库只包含 fullcone，拉取极快且不容易报权限错
+git clone --depth 1 https://github.com/sbwml/openwrt-nft-fullcone.git package/nft-fullcone
 
-if [ -d "temp_repo/nft-fullcone" ]; then
-    cp -r temp_repo/nft-fullcone package/
-    echo "✅ [SUCCESS] nft-fullcone 源码已手动补全"
-    rm -rf temp_repo
-else
-    echo "❌ [ERROR] 无法从 temp_repo 找到 nft-fullcone"
-    # 最后的保命手段：如果上面的仓库都挂了，尝试从另一个源拉取
-    git clone --depth 1 https://github.com/sbwml/openwrt-nft-fullcone.git package/nft-fullcone
-fi
+# 3. 拉取适配 25.12/nftables 的 TurboACC
+# 注意：这里改用 Lean 仓库的镜像，因为其对新内核支持较好
+git clone --depth 1 https://github.com/coolsnowwolf/packages.git temp_repo
+# 仅提取其中的 turboacc 相关部分
+cp -r temp_repo/net/luci-app-turboacc package/ 2>/dev/null || true
+rm -rf temp_repo
 
-# 3. 检查 TurboACC 状态
-TURBOACC_FIND=$(find feeds/ -name "luci-app-turboacc" -type d | head -n 1)
-if [ -z "$TURBOACC_FIND" ]; then
-    echo "⚠️ TurboACC 缺失，正在强制拉取..."
-    # 直接拉取 Lean 版的插件源码
-    git clone --depth 1 https://github.com/coolsnowwolf/luci/tree/master/applications/luci-app-turboacc package/luci-app-turboacc
-fi
+# 4. 执行 add_turboacc.sh 获取必要的动态库 (保持你原来的步骤)
+curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh -o add_turboacc.sh
+bash add_turboacc.sh
 
-# 4. 刷新索引并强制选中
+# 5. 状态自检（打印在日志中，方便你排查）
+echo "--- 最终自检 ---"
+if [ -f "package/nft-fullcone/Makefile" ]; then echo "✅ nft-fullcone 源码已就绪"; else echo "❌ nft-fullcone 仍然缺失"; fi
+if [ -d "package/luci-app-turboacc" ]; then echo "✅ TurboACC 插件已就绪"; else echo "❌ TurboACC 插件仍然缺失"; fi
+
+# 6. 刷新 Feeds 并强制选中
 ./scripts/feeds update -i
 ./scripts/feeds install -a
 
 if [ -f .config ]; then
     echo "正在强制注入 .config..."
+    # 确保移除冲突项
     sed -i '/CONFIG_PACKAGE_kmod-nft-fullcone/d' .config
-    echo "CONFIG_PACKAGE_kmod-nft-fullcone=y" >> .config
     sed -i '/CONFIG_PACKAGE_luci-app-turboacc/d' .config
+    
+    # 强制开启
+    echo "CONFIG_PACKAGE_kmod-nft-fullcone=y" >> .config
     echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+    # 针对 AN7581DT 建议开启的加速选项
+    echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y" >> .config
+    
     make defconfig
 fi
 
-echo "======= 修复流程执行完毕 ======="
+echo "======= 修复流程结束 ======="
 # B. 拉取 Aurora 主题
 if [ ! -d "package/luci-theme-aurora" ]; then
     echo "正在拉取 Aurora 主题..."
