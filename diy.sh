@@ -28,6 +28,7 @@ fi
 ok "找到内核配置文件：$KERN_CFG"
 
 # 0-1. 清除旧 CPU_FREQ 相关行
+# 注释：sed 替换成功则输出成功信息，否则失败退出
 if sed -i '/CONFIG_CPU_FREQ/d' "$KERN_CFG" && \
    sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$KERN_CFG"; then
     ok "已清除旧的 CPU_FREQ 配置行"
@@ -36,6 +37,7 @@ else
 fi
 
 # 0-2. 注入新的内核配置
+# 注释：使用 cat 追加多行配置，若成功则提示成功
 if cat >> "$KERN_CFG" <<'EOF'
 CONFIG_CPU_FREQ=y
 CONFIG_CPU_FREQ_STAT=y
@@ -57,6 +59,7 @@ else
 fi
 
 # 0-3. 同步到 .config
+# 注释：make defconfig 将 target 目录下的默认配置合并到 .config
 info "执行 make defconfig ..."
 if make defconfig > /dev/null 2>&1; then
     ok "make defconfig 成功"
@@ -64,12 +67,13 @@ else
     fail "make defconfig 失败"
 fi
 
-# 0-4. oldconfig（自动回答 NEW，取默认值）
-info "执行 make oldconfig（自动回答 NEW 选项）..."
-if make oldconfig < /dev/null > /dev/null 2>&1; then
-    ok "make oldconfig 成功"
+# 0-4. 全局 olddefconfig（自动处理所有软件包及内核的新选项，无交互）
+# 注释：使用 olddefconfig 代替 oldconfig < /dev/null，更安全可靠
+info "执行 make olddefconfig（自动接受所有新选项的默认值）..."
+if make olddefconfig > /dev/null 2>&1; then
+    ok "make olddefconfig 成功"
 else
-    warn "make oldconfig 执行有警告（通常可忽略，NEW 已取默认值）"
+    warn "make olddefconfig 执行有警告（通常可忽略）"
 fi
 
 # 0-5. 检测内核构建目录
@@ -77,7 +81,7 @@ KERN_DIR=$(ls -d build_dir/target-*/linux-airoha_an7581/linux-*/ 2>/dev/null | h
 if [ -n "$KERN_DIR" ] && [ -d "$KERN_DIR" ]; then
     ok "检测到内核构建目录：$KERN_DIR"
 
-    # 0-6. olddefconfig
+    # 0-6. 内核层 olddefconfig（双重保障）
     info "对内核执行 olddefconfig 以彻底消除 NEW 选项..."
     if make -C "$KERN_DIR" ARCH="arm64" olddefconfig V=0 > /dev/null 2>&1; then
         ok "内核 olddefconfig 成功"
@@ -85,18 +89,23 @@ if [ -n "$KERN_DIR" ] && [ -d "$KERN_DIR" ]; then
         warn "内核 olddefconfig 执行有警告（通常可忽略）"
     fi
 
-    # 0-7. 差异回写
+    # 0-7. 差异回写（将当前内核配置差异保存到目标 config 文件，避免后续重建时再次询问）
+    # 注释：使用 diffconfig.sh 生成差异并追加到 config-6.12
     if [ -x ./scripts/diffconfig.sh ]; then
         ok "找到 scripts/diffconfig.sh 工具"
-        DIFF=$(./scripts/diffconfig.sh .config .config.old 2>/dev/null || true)
-        if [ -n "$DIFF" ]; then
-            if echo "$DIFF" >> "$KERN_CFG"; then
-                ok "内核配置差异已回写到 config-6.12（后续构建不会再出现该 NEW 提示）"
+        if [ -f .config.old ]; then
+            DIFF=$(./scripts/diffconfig.sh .config .config.old 2>/dev/null || true)
+            if [ -n "$DIFF" ]; then
+                if echo "$DIFF" >> "$KERN_CFG"; then
+                    ok "内核配置差异已回写到 config-6.12（后续构建不会再出现该 NEW 提示）"
+                else
+                    fail "内核配置差异回写失败"
+                fi
             else
-                fail "内核配置差异回写失败"
+                ok "内核配置无差异需要回写"
             fi
         else
-            ok "内核配置无差异需要回写"
+            warn "未找到 .config.old，跳过差异回写"
         fi
     else
         warn "未找到 scripts/diffconfig.sh，跳过差异回写（建议后续手动 make kernel_menuconfig 保存）"
@@ -112,7 +121,7 @@ echo -e "${GREEN}✅ [0/8] 内核配置注入与 NEW 选项补全完成${NC}"
 # =========================================================
 echo -e "${BLUE}[1/8] 更新 Feeds 并清理 fwupd 冲突...${NC}"
 
-# 1-1. 复制种子配置
+# 1-1. 复制种子配置（如果 .config 不存在）
 if [ ! -f .config ]; then
     if [ -f "../config/xg-040g-md.config" ]; then
         if cp -fv "../config/xg-040g-md.config" .config > /dev/null 2>&1; then
@@ -135,7 +144,7 @@ else
     warn "feeds update -a 执行有警告（通常可忽略）"
 fi
 
-# 1-3. 删除 fwupd
+# 1-3. 删除 fwupd（解决冲突）
 if rm -rf feeds/packages/utils/fwupd; then
     ok "fwupd 冲突目录已清理"
 else
@@ -164,7 +173,7 @@ else
     warn "旧 luci-app-airoha-npu 目录清理失败（可能不存在）"
 fi
 
-# 2-2. git clone
+# 2-2. git clone NPU 插件仓库
 info "克隆 NPU 插件仓库..."
 if git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu > /dev/null 2>&1; then
     ok "NPU 插件仓库克隆成功"
@@ -190,17 +199,19 @@ else
     fail "NPU 插件仓库克隆失败（请检查网络连接或仓库地址）"
 fi
 
-# 2-5. 修复 Makefile
+# 2-5. 修复 Makefile（依赖和权限）
 MAKEFILE="package/luci-app-airoha-npu/Makefile"
 if [ -f "$MAKEFILE" ]; then
     ok "找到 Makefile，开始修复..."
 
+    # 修复依赖行
     if sed -i 's/LUCI_DEPENDS:=.*/LUCI_DEPENDS:=+luci-base +busybox @TARGET_airoha/' "$MAKEFILE"; then
         ok "LUCI_DEPENDS 修复成功"
     else
         fail "LUCI_DEPENDS 修复失败"
     fi
 
+    # 添加 chmod 0755 权限修复（如果不存在）
     if ! grep -q "chmod 0755" "$MAKEFILE"; then
         if sed -i '/define Package\/luci-app-airoha-npu\/install/,/endef/ s/$(call LuCI\/Install.*/&\n\tchmod 0755 $(1)\/usr\/libexec\/rpcd\/luci.airoha_npu/' "$MAKEFILE"; then
             ok "chmod 0755 权限修复注入成功"
@@ -302,6 +313,7 @@ else
     fail "创建 init.d 目录失败"
 fi
 
+# 注释：写入 fix-mac 脚本，确保首次启动时生成随机 MAC 并固化
 if cat > files/etc/init.d/fix-mac <<'EOF'
 #!/bin/sh /etc/rc.common
 START=99
@@ -393,37 +405,49 @@ else
 fi
 
 # 7-4. 二次 olddefconfig + 差异回写（防止后续编译再出 NEW）
+# 注释：再次执行 olddefconfig 确保所有新增选项都被自动处理
+info "二次执行 make olddefconfig ..."
+if make olddefconfig > /dev/null 2>&1; then
+    ok "二次 olddefconfig 成功"
+else
+    warn "二次 olddefconfig 有警告"
+fi
+
 KERN_DIR=$(ls -d build_dir/target-*/linux-airoha_an7581/linux-*/ 2>/dev/null | head -n1)
 if [ -n "$KERN_DIR" ] && [ -d "$KERN_DIR" ]; then
     info "二次执行内核 olddefconfig（防止后续编译出现新 NEW 选项）..."
     if make -C "$KERN_DIR" ARCH="arm64" olddefconfig V=0 > /dev/null 2>&1; then
-        ok "二次 olddefconfig 成功"
+        ok "二次内核 olddefconfig 成功"
     else
-        warn "二次 olddefconfig 有警告（通常可忽略）"
+        warn "二次内核 olddefconfig 有警告（通常可忽略）"
     fi
 
     if [ -x ./scripts/diffconfig.sh ]; then
-        DIFF=$(./scripts/diffconfig.sh .config .config.old 2>/dev/null || true)
-        if [ -n "$DIFF" ]; then
-            if echo "$DIFF" >> "$KERN_CFG"; then
-                ok "内核配置差异已二次回写到 config-6.12"
+        if [ -f .config.old ]; then
+            DIFF=$(./scripts/diffconfig.sh .config .config.old 2>/dev/null || true)
+            if [ -n "$DIFF" ]; then
+                if echo "$DIFF" >> "$KERN_CFG"; then
+                    ok "内核配置差异已二次回写到 config-6.12"
+                else
+                    fail "内核配置差异二次回写失败"
+                fi
             else
-                fail "内核配置差异二次回写失败"
+                ok "二次检查无新内核配置差异"
             fi
         else
-            ok "二次检查无新内核配置差异"
+            warn "未找到 .config.old，跳过二次差异回写"
         fi
     fi
 else
     warn "未检测到内核构建目录，跳过二次 olddefconfig"
 fi
 
-# 7-5. 最终 oldconfig
-info "执行最终 make oldconfig ..."
-if make oldconfig < /dev/null > /dev/null 2>&1; then
-    ok "最终 make oldconfig 成功"
+# 7-5. 最终 olddefconfig（代替原来的 oldconfig）
+info "执行最终 make olddefconfig ..."
+if make olddefconfig > /dev/null 2>&1; then
+    ok "最终 make olddefconfig 成功"
 else
-    warn "最终 make oldconfig 有警告（通常可忽略）"
+    warn "最终 make olddefconfig 有警告（通常可忽略）"
 fi
 
 echo -e "${GREEN}✅ [7/8] .config 配置锁定完成${NC}"
@@ -439,6 +463,7 @@ else
     fail "创建 uci-defaults 目录失败"
 fi
 
+# 注释：写入 99-custom-settings 脚本，设置默认语言和主题
 if cat > files/etc/uci-defaults/99-custom-settings <<'EOF'
 #!/bin/sh
 uci set luci.main.lang='zh_cn'
@@ -470,6 +495,14 @@ if make defconfig > /dev/null 2>&1; then
     ok "最终 make defconfig 成功"
 else
     fail "最终 make defconfig 失败"
+fi
+
+# 最终执行一次 olddefconfig 确保万无一失
+info "最终 make olddefconfig ..."
+if make olddefconfig > /dev/null 2>&1; then
+    ok "最终 make olddefconfig 成功"
+else
+    warn "最终 make olddefconfig 有警告"
 fi
 
 echo -e "${GREEN}🎉 脚本执行完毕！fwupd 冲突已清理，功能已补齐，内核 NEW 选项已自动补全并回写。${NC}"
