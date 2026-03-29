@@ -148,18 +148,22 @@ chmod +x files/etc/init.d/fix-mac
 echo -e "${GREEN}✅ [8/10] MAC 固定脚本已添加${NC}"
 
 # =========================================================
-# 9. 配置锁定（安全模式：只启用必定存在的选项）
+# 9. 配置锁定（关键修复：busybox devmem + 内核 cpufreq）
 # =========================================================
 echo -e "${BLUE}[9/10] 锁定关键配置...${NC}"
 make defconfig
 
-# 强制添加 busybox devmem（必定存在）
+# 强制启用 busybox 自定义模式，以允许启用 devmem
+sed -i '/CONFIG_BUSYBOX_CUSTOM/d' .config
+echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
+
+# 启用 busybox devmem
 sed -i '/CONFIG_BUSYBOX_CONFIG_DEVMEM/d' .config
 echo "CONFIG_BUSYBOX_CONFIG_DEVMEM=y" >> .config
 
-# 添加 cpufrequtils 和 devmem2（如果源中没有，不会导致失败）
-echo "CONFIG_PACKAGE_cpufrequtils=y" >> .config
-echo "CONFIG_PACKAGE_devmem2=y" >> .config
+# 确保内核 /dev/mem 支持（超频需要）
+sed -i '/CONFIG_DEVMEM/d' .config
+echo "CONFIG_DEVMEM=y" >> .config
 
 # 添加 LuCI 相关包
 for pkg in luci-app-airoha-npu luci-app-turboacc kmod-nft-fullcone luci-theme-aurora; do
@@ -171,9 +175,17 @@ done
 sed -i '/CONFIG_LUCI_LANG_zh_Hans/d' .config
 echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
 
+# 重新生成配置（保留新添加的配置项）
 make oldconfig
 
-echo -e "${GREEN}✅ [9/10] 配置锁定完成（busybox devmem 已启用，cpufrequtils 和 devmem2 已尝试添加）${NC}"
+# 检查 devmem 是否真的被启用
+if grep -q "CONFIG_BUSYBOX_CONFIG_DEVMEM=y" .config; then
+    echo -e "${GREEN}✅ busybox devmem 已成功启用${NC}"
+else
+    echo -e "${YELLOW}⚠️ busybox devmem 可能未启用，但已强制添加配置，编译后请验证${NC}"
+fi
+
+echo -e "${GREEN}✅ [9/10] 配置锁定完成（busybox devmem + 内核 /dev/mem 支持）${NC}"
 
 # =========================================================
 # 10. 最终确认
