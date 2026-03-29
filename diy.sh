@@ -10,36 +10,15 @@ NC='\033[0m'
 trap 'echo -e "${RED}❌ 脚本执行出错，请检查上方的错误日志！${NC}"; exit 1' ERR
 
 # =========================================================
-# 0. 配置文件准备
+# 0. 内核配置注入 (修复 CPUFreq 路径并预防冲突)
 # =========================================================
-if [ ! -f .config ]; then
-    if [ -f "../config/xg-040g-md.config" ]; then
-        cp -fv "../config/xg-040g-md.config" .config
-        echo -e "${GREEN}✅ 已复制种子配置文件${NC}"
-    fi
-fi
+echo -e "${BLUE}[0/8] 正在注入内核配置 (修正路径: an7581/config-6.12)...${NC}"
+KERN_CFG="target/linux/airoha/an7581/config-6.12"
 
-# =========================================================
-# 1. 【核心：防锁死注入】必须在所有 make 命令之前执行
-# =========================================================
-echo -e "${BLUE}[1/9] 注入内核防锁死配置 (CPUFreq 路径修复)...${NC}"
-
-# 自动探测正确的内核配置文件路径
-if [ -f "target/linux/airoha/an7581/config-6.12" ]; then
-    CFG_FILE="target/linux/airoha/an7581/config-6.12"
-elif [ -f "target/linux/airoha/config-6.12" ]; then
-    CFG_FILE="target/linux/airoha/config-6.12"
-else
-    CFG_FILE=""
-fi
-
-if [ -n "$CFG_FILE" ]; then
-    # 彻底清理旧项，防止重复写入导致冲突
-    sed -i '/CONFIG_CPU_FREQ/d' "$CFG_FILE"
-    sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$CFG_FILE"
-    
-    # 注入全量调度器参数，堵住内核的 choice[1-6?] 询问
-    cat >> "$CFG_FILE" <<EOF
+if [ -f "$KERN_CFG" ]; then
+    sed -i '/CONFIG_CPU_FREQ/d' "$KERN_CFG"
+    sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$KERN_CFG"
+    cat >> "$KERN_CFG" <<EOF
 CONFIG_CPU_FREQ=y
 CONFIG_CPU_FREQ_STAT=y
 CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
@@ -53,29 +32,34 @@ CONFIG_ARM_AIROHA_CPUFREQ=y
 CONFIG_CPUFREQ_DT=y
 CONFIG_ENERGY_MODEL=y
 EOF
-    echo -e "${GREEN}✅ 内核全量配置已注入: $CFG_FILE${NC}"
-else
-    echo -e "${RED}❌ 路径探测失败，请检查源码结构！${NC}"
+    echo -e "${GREEN}✅ 内核路径修正与配置注入完成${NC}"
 fi
 
 # =========================================================
-# 2. 更新 Feeds
+# 1. 环境准备 (保留你提供的原逻辑，处理 fwupd 冲突)
 # =========================================================
-echo -e "${BLUE}[2/9] 更新 Feeds...${NC}"
+echo -e "${BLUE}[1/8] 更新 Feeds 并清理 fwupd 冲突...${NC}"
+if [ ! -f .config ]; then
+    if [ -f "../config/xg-040g-md.config" ]; then
+        cp -fv "../config/xg-040g-md.config" .config
+        echo -e "${GREEN}✅ 已复制种子配置文件${NC}"
+    fi
+fi
+
 ./scripts/feeds update -a
+# 关键：彻底删除 fwupd 文件夹以解决依赖冲突
 rm -rf feeds/packages/utils/fwupd
 ./scripts/feeds install -a
-echo -e "${GREEN}✅ Feeds 更新完成${NC}"
+echo -e "${GREEN}✅ [1/8] Feeds 更新与 fwupd 冲突清理完成${NC}"
 
 # =========================================================
-# 3. 提取 NPU 插件并修复 Makefile
+# 2. 提取 NPU 插件并修复 Makefile
 # =========================================================
-echo -e "${BLUE}[3/9] 提取 Airoha NPU 插件并修复 Makefile...${NC}"
+echo -e "${BLUE}[2/8] 提取 Airoha NPU 插件...${NC}"
 rm -rf package/luci-app-airoha-npu
 git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD.git package/temp_npu
 if [ -d "package/temp_npu/package/luci-app-airoha-npu" ]; then
     cp -r package/temp_npu/package/luci-app-airoha-npu package/
-    echo -e "${GREEN}✅ NPU 插件提取完成${NC}"
 fi
 rm -rf package/temp_npu
 
@@ -88,33 +72,33 @@ if [ -f "$MAKEFILE" ]; then
 fi
 
 # =========================================================
-# 4. 提取 Aurora 主题
+# 3. 提取 Aurora 主题
 # =========================================================
-echo -e "${BLUE}[4/9] 提取 Aurora 主题...${NC}"
+echo -e "${BLUE}[3/8] 提取 Aurora 主题...${NC}"
 rm -rf package/luci-theme-aurora
 git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
 
 # =========================================================
-# 5. 集成 TurboAcc
+# 4. 集成 TurboAcc
 # =========================================================
-echo -e "${BLUE}[5/9] 集成 TurboAcc...${NC}"
+echo -e "${BLUE}[4/8] 集成 TurboAcc...${NC}"
 curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
 sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
 bash add_turboacc.sh --no-sfe
 rm -f add_turboacc.sh
 
 # =========================================================
-# 6. 同步 sysctl 优化配置
+# 5. 系统优化配置
 # =========================================================
-echo -e "${BLUE}[6/9] 同步 sysctl 配置...${NC}"
+echo -e "${BLUE}[5/8] 系统优化配置...${NC}"
 mkdir -p files/etc/sysctl.d
 curl -fsSL "https://raw.githubusercontent.com/kzio111/OpenWrt-for-XG-040G-MD/main/files/etc/sysctl.d/sysctl-nf-conntrack.conf" \
   -o files/etc/sysctl.d/sysctl-nf-conntrack.conf
 
 # =========================================================
-# 7. 添加 MAC 固定脚本
+# 6. 添加 MAC 固定脚本
 # =========================================================
-echo -e "${BLUE}[7/9] 添加 MAC 固定脚本...${NC}"
+echo -e "${BLUE}[6/8] 添加 MAC 固定脚本...${NC}"
 mkdir -p files/etc/init.d
 cat > files/etc/init.d/fix-mac << 'EOF'
 #!/bin/sh /etc/rc.common
@@ -140,9 +124,9 @@ EOF
 chmod +x files/etc/init.d/fix-mac
 
 # =========================================================
-# 8. 配置锁定 (zRAM + Natmap + UPnP)
+# 7. 配置锁定 (.config 层面：集成 zRAM, Natmap, UPnP)
 # =========================================================
-echo -e "${BLUE}[8/9] 锁定 .config 配置 (zRAM/Natmap/UPnP)...${NC}"
+echo -e "${BLUE}[7/8] 锁定 .config 配置 (zRAM + Natmap + UPnP)...${NC}"
 make defconfig
 
 # 强制开启 devmem
@@ -151,11 +135,12 @@ for opt in BUSYBOX_CUSTOM BUSYBOX_CONFIG_DEVMEM KERNEL_DEVMEM; do
     echo "CONFIG_${opt}=y" >> .config
 done
 
-# 添加新增的软件包
-PKGS="luci-app-airoha-npu luci-app-turboacc kmod-nft-fullcone luci-theme-aurora cpufrequtils \
+# 核心软件包锁定
+PKGS="luci-app-airoha-npu luci-app-turboacc luci-theme-aurora cpufrequtils \
       zram-config luci-app-zram \
       natmap luci-app-natmap \
-      miniupnpd luci-app-upnp"
+      miniupnpd luci-app-upnp \
+      kmod-nft-fullcone"
 
 for pkg in $PKGS; do
     sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
@@ -163,14 +148,12 @@ for pkg in $PKGS; do
 done
 
 echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
-
-# 再次使用 yes "" 确保 oldconfig 也是非交互的
-yes "" | make oldconfig
+make oldconfig
 
 # =========================================================
-# 9. 最终初始化
+# 8. 最终初始化
 # =========================================================
-echo -e "${BLUE}[9/9] 最终初始化...${NC}"
+echo -e "${BLUE}[8/8] 最终初始化...${NC}"
 mkdir -p files/etc/uci-defaults
 cat > files/etc/uci-defaults/99-custom-settings << 'EOF'
 #!/bin/sh
@@ -184,6 +167,4 @@ chmod +x files/etc/uci-defaults/99-custom-settings
 ./scripts/feeds install -a
 make defconfig
 
-echo -e "${GREEN}🎉 --------------------------------------------------${NC}"
-echo -e "${GREEN}🎉 防锁死代码已前置！CPU 调频与新增功能集成完毕。${NC}"
-echo -e "${GREEN}🎉 --------------------------------------------------${NC}"
+echo -e "${GREEN}🎉 脚本执行完毕！fwupd 冲突已清理，功能已补齐。${NC}"
