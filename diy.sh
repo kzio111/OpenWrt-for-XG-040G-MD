@@ -88,7 +88,22 @@ EOF
 else
     echo -e "${RED}❌ [6/8] 未找到 config-6.12 文件，跳过 cpufreq 注入${NC}"
 fi
-
+# =========================================================
+# 6b. 确保 cpufreq 用户空间工具和完整驱动
+# =========================================================
+echo -e "${BLUE}[6b/10] 启用 cpufreq 用户空间工具...${NC}"
+# 添加 cpufrequtils 包
+echo "CONFIG_PACKAGE_cpufrequtils=y" >> .config
+# 确保 cpufreq 驱动选项完整（针对 airoha）
+CFG_FILE=$(find target/linux/airoha/ -name "config-6.12" | head -1)
+if [ -n "$CFG_FILE" ]; then
+    # 追加驱动选项（如果之前未添加）
+    grep -q "CONFIG_ARM_AIROHA_CPUFREQ" "$CFG_FILE" || echo "CONFIG_ARM_AIROHA_CPUFREQ=y" >> "$CFG_FILE"
+    grep -q "CONFIG_CPU_FREQ_DT" "$CFG_FILE" || echo "CONFIG_CPU_FREQ_DT=y" >> "$CFG_FILE"
+    echo -e "${GREEN}✅ [6b/10] cpufreq 驱动已强化${NC}"
+else
+    echo -e "${RED}❌ [6b/10] 未找到 config-6.12 文件，跳过 cpufreq 驱动强化${NC}"
+fi
 # =========================================================
 # 7. 启用 devmem（超频所需）
 # =========================================================
