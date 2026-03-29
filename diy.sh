@@ -58,13 +58,14 @@ bash add_turboacc.sh --no-sfe
 rm -f add_turboacc.sh
 
 # =========================================================
-# 5. 注入 CPUFreq 内核驱动 (修复重点)
+# 5. 注入 CPUFreq 内核驱动 (针对 Airoha 平台修复)
 # =========================================================
 echo -e "${BLUE}[5/7] 注入 CPUFreq 内核支持...${NC}"
-# 针对 Airoha 6.12 内核，必须确保驱动被静态编译进内核或作为强制模块
-CFG_FILE=$(find target/linux/airoha/ -name "config-6.12" | head -1)
+# 查找对应内核版本的配置文件
+CFG_FILE=$(find target/linux/airoha/ -name "config-*" | head -1)
 if [ -n "$CFG_FILE" ]; then
-    # 先清理可能存在的旧配置防止冲突
+    echo -e "${YELLOW}正在修改内核配置: $CFG_FILE${NC}"
+    # 清理并注入核心调频配置
     sed -i '/CONFIG_CPU_FREQ/d' "$CFG_FILE"
     sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$CFG_FILE"
     
@@ -81,30 +82,32 @@ EOF
 fi
 
 # =========================================================
-# 6. 锁定软件包配置
+# 6. 锁定软件包配置 (保持 Devmem 不动)
 # =========================================================
-echo -e "${BLUE}[6/7] 锁定软件配置 (CPUFreq/Devmem)...${NC}"
+echo -e "${BLUE}[6/7] 锁定软件配置 (CPUFreq/Devmem/Plugins)...${NC}"
 make defconfig
 
-# 强制开启 Busybox 工具 (devmem)
+# --- 保持原样: Devmem 配置 ---
 for opt in CONFIG_BUSYBOX_CUSTOM CONFIG_BUSYBOX_CONFIG_DEVMEM CONFIG_KERNEL_DEVMEM; do
     sed -i "/$opt/d" .config
     echo "$opt=y" >> .config
 done
 
-# 勾选 CPU 调频工具和网页界面
-for pkg in cpufrequtils luci-app-cpufreq; do
+# --- 新增: CPU 调频工具和网页界面 ---
+for pkg in cpufrequtils luci-app-cpufreq luci-i18n-cpufreq-zh-cn; do
     sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
     echo "CONFIG_PACKAGE_${pkg}=y" >> .config
 done
 
-# 勾选其他插件
-for pkg in luci-app-airoha-npu luci-app-turboacc kmod-nft-fullcone luci-theme-aurora CONFIG_LUCI_LANG_zh_Hans; do
-    # 兼容处理带 CONFIG_ 开头的和不带的
-    key=$(echo $pkg | sed 's/^CONFIG_//')
-    sed -i "/CONFIG_PACKAGE_${key}/d" .config
-    echo "CONFIG_PACKAGE_${key}=y" >> .config
+# --- 勾选其他插件 ---
+for pkg in luci-app-airoha-npu luci-app-turboacc kmod-nft-fullcone luci-theme-aurora; do
+    sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
+    echo "CONFIG_PACKAGE_${pkg}=y" >> .config
 done
+
+# 确保选中中文语言支持 (新版 OpenWrt 规范)
+sed -i "/CONFIG_LUCI_LANG_zh_Hans/d" .config
+echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
 
 # =========================================================
 # 7. 最终初始化
