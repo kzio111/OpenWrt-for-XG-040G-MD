@@ -9,8 +9,13 @@ PKG_RELEASE:=3
 PKG_LICENSE:=Apache-2.0
 
 LUCI_TITLE:=LuCI Airoha NPU Status
-LUCI_DEPENDS:=+luci-base @TARGET_airoha
+LUCI_DEPENDS:=+luci-base +busybox @TARGET_airoha
 
 include $(TOPDIR)/feeds/luci/luci.mk
+
+define Package/luci-app-airoha-npu/install
+    $(call LuCI/Install,$(1),luci-app-airoha-npu)
+    chmod 0755 $(1)/usr/libexec/rpcd/luci.airoha_npu
+endef
 
 # call BuildPackage - OpenWrt buildroot signature
