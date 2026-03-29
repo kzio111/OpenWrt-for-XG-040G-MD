@@ -120,9 +120,19 @@ echo -e "${BLUE}[7/8] 锁定配置（devmem + cpufreq + 必要软件包）...${N
 # 7.1 生成基础配置
 make defconfig
 
-# 7.2 强制写入 cpufreq 到平台内核配置文件（不会被 defconfig 覆盖）
-CFG_FILE="target/linux/airoha/config-6.12"
-if [ -f "$CFG_FILE" ]; then
+# 7.2 强制写入 cpufreq 到平台内核配置文件（注意正确的路径！）
+# 优先查找 an7581 子目录下的 config，如果没有则回退到通用 config
+if [ -f "target/linux/airoha/an7581/config-6.12" ]; then
+    CFG_FILE="target/linux/airoha/an7581/config-6.12"
+elif [ -f "target/linux/airoha/config-6.12" ]; then
+    CFG_FILE="target/linux/airoha/config-6.12"
+    echo -e "${YELLOW}⚠️ 使用通用 config-6.12，请确认是否正确${NC}"
+else
+    CFG_FILE=""
+    echo -e "${RED}❌ 未找到任何 config-6.12 文件，跳过 cpufreq 注入${NC}"
+fi
+
+if [ -n "$CFG_FILE" ]; then
     sed -i '/CONFIG_CPU_FREQ/d' "$CFG_FILE"
     cat >> "$CFG_FILE" <<EOF
 CONFIG_CPU_FREQ=y
@@ -134,12 +144,6 @@ CONFIG_ARM_AIROHA_CPUFREQ=y
 CONFIG_CPUFREQ_DT=y
 EOF
     echo -e "${GREEN}✅ cpufreq 已写入 $CFG_FILE${NC}"
-else
-    echo -e "${YELLOW}⚠️ 未找到 config-6.12，将直接修改 .config${NC}"
-    for opt in CPU_FREQ CPU_FREQ_STAT CPU_FREQ_DEFAULT_GOV_PERFORMANCE CPU_FREQ_GOV_PERFORMANCE CPU_FREQ_GOV_ONDEMAND ARM_AIROHA_CPUFREQ CPUFREQ_DT; do
-        sed -i "/CONFIG_${opt}/d" .config
-        echo "CONFIG_${opt}=y" >> .config
-    done
 fi
 
 # 7.3 强制修改 .config 中的 devmem 和软件包选项
