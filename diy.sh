@@ -58,56 +58,29 @@ bash add_turboacc.sh --no-sfe
 rm -f add_turboacc.sh
 
 # =========================================================
-# 5. 注入 CPUFreq 内核驱动 (针对 Airoha 平台修复)
+# 6. 锁定软件包配置 (整合 Devmem 与内核驱动)
 # =========================================================
-echo -e "${BLUE}[5/7] 注入 CPUFreq 内核支持...${NC}"
-# 查找对应内核版本的配置文件
-CFG_FILE=$(find target/linux/airoha/ -name "config-*" | head -1)
-if [ -n "$CFG_FILE" ]; then
-    echo -e "${YELLOW}正在修改内核配置: $CFG_FILE${NC}"
-    # 清理并注入核心调频配置
-    sed -i '/CONFIG_CPU_FREQ/d' "$CFG_FILE"
-    sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$CFG_FILE"
-    
-    cat >> "$CFG_FILE" <<EOF
-CONFIG_CPU_FREQ=y
-CONFIG_CPU_FREQ_STAT=y
-CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-CONFIG_CPU_FREQ_GOV_ONDEMAND=y
-CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-CONFIG_ARM_AIROHA_CPUFREQ=y
-CONFIG_CPU_FREQ_DT=y
+echo -e "${BLUE}[6/7] 正在锁定 Devmem、CPUFreq 及插件配置...${NC}"
+
+# 1. 强制注入所有配置到 .config (包含 devmem 和 cpufreq)
+cat >> .config <<EOF
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_DEVMEM=y
+CONFIG_KERNEL_DEVMEM=y
+CONFIG_PACKAGE_kmod-pwm-airoha=y
+CONFIG_PACKAGE_kmod-cpufreq-dt=y
+CONFIG_PACKAGE_kmod-cpufreq-ondemand=y
+CONFIG_PACKAGE_kmod-cpufreq-performance=y
+CONFIG_PACKAGE_cpufrequtils=y
+CONFIG_PACKAGE_luci-app-airoha-npu=y
+CONFIG_PACKAGE_luci-app-turboacc=y
+CONFIG_PACKAGE_kmod-nft-fullcone=y
+CONFIG_PACKAGE_luci-theme-aurora=y
+CONFIG_LUCI_LANG_zh_Hans=y
 EOF
-    echo -e "${GREEN}✅ 内核 CPUFreq 驱动配置已注入${NC}"
-fi
 
-# =========================================================
-# 6. 锁定软件包配置 (保持 Devmem 不动)
-# =========================================================
-echo -e "${BLUE}[6/7] 锁定软件配置 (CPUFreq/Devmem/Plugins)...${NC}"
+# 2. 执行一次完整的依赖补全
 make defconfig
-
-# --- 保持原样: Devmem 配置 ---
-for opt in CONFIG_BUSYBOX_CUSTOM CONFIG_BUSYBOX_CONFIG_DEVMEM CONFIG_KERNEL_DEVMEM; do
-    sed -i "/$opt/d" .config
-    echo "$opt=y" >> .config
-done
-
-# --- 新增: CPU 调频工具和网页界面 ---
-for pkg in cpufrequtils luci-app-cpufreq luci-i18n-cpufreq-zh-cn; do
-    sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
-    echo "CONFIG_PACKAGE_${pkg}=y" >> .config
-done
-
-# --- 勾选其他插件 ---
-for pkg in luci-app-airoha-npu luci-app-turboacc kmod-nft-fullcone luci-theme-aurora; do
-    sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
-    echo "CONFIG_PACKAGE_${pkg}=y" >> .config
-done
-
-# 确保选中中文语言支持 (新版 OpenWrt 规范)
-sed -i "/CONFIG_LUCI_LANG_zh_Hans/d" .config
-echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
 
 # =========================================================
 # 7. 最终初始化
