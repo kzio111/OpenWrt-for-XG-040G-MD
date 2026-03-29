@@ -504,5 +504,10 @@ if make olddefconfig > /dev/null 2>&1; then
 else
     warn "最终 make olddefconfig 有警告"
 fi
-
+info "预生成内核配置（target/linux/oldconfig）..."
+if make target/linux/oldconfig > /dev/null 2>&1; then
+    ok "内核配置已同步"
+else
+    warn "内核配置同步有警告（通常可忽略）"
+fi
 echo -e "${GREEN}🎉 脚本执行完毕！fwupd 冲突已清理，功能已补齐，内核 NEW 选项已自动补全并回写。${NC}"
