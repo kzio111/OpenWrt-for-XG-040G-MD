@@ -100,10 +100,9 @@ jobs:
         uses: P3TERX/ssh2actions@main
         if: github.event.inputs.ssh == 'true'
 
-      - name: Generate Final Config
+      - name: Backup Final Config
         working-directory: ./openwrt
         run: |
-          make defconfig
           [ -e .config ] && cp .config defconfig-final.config
 
       - name: Download packages
