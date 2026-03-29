@@ -7,7 +7,7 @@ BLUE='\033[34m'
 RED='\033[31m'
 NC='\033[0m'
 
-# 捕获错误：如果某步失败，打印红色提示并退出
+# 捕获错误
 trap 'echo -e "${RED}❌ 脚本执行出错，请检查上方的错误日志！${NC}"; exit 1' ERR
 
 # =========================================================
@@ -38,32 +38,19 @@ git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luc
 echo -e "${GREEN}✅ [3/7] Aurora 主题提取完成${NC}"
 
 # =========================================================
-# 4. TurboAcc 集成（只让脚本看到 6.12，避免 6.18 导致退出）
+# 4. TurboAcc 集成（精准破解脚本，遇到 6.18 直接跳过）
 # =========================================================
-echo -e "${BLUE}[4/7] 下载并运行 TurboAcc 官方集成脚本（仅针对 6.12）...${NC}"
+echo -e "${BLUE}[4/7] 下载并运行 TurboAcc 官方集成脚本...${NC}"
 
-# 临时屏蔽 6.18，让脚本只识别到 6.12
-if [ -e target/linux/generic/kernel-6.18 ]; then
-  mv target/linux/generic/kernel-6.18 target/linux/generic/kernel-6.18.bak
-fi
-if [ -e target/linux/generic/config-6.18 ]; then
-  mv target/linux/generic/config-6.18 target/linux/generic/config-6.18.bak
-fi
-
-# 执行官方脚本（--no-sfe 避免引入 SFE）
 curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
+
+# 精准破解：找到"Unsupported kernel version"这一行，把它下一行的 exit 1 替换为 continue
+# 这样遇到 6.18 只会打印警告并跳过，不会中断整个脚本；而其他真正的报错（如网络断开）依然会正常退出
+sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
+
 bash add_turboacc.sh --no-sfe
 rm -f add_turboacc.sh
-
-# 恢复 6.18 相关文件，不影响你以后的构建
-if [ -e target/linux/generic/kernel-6.18.bak ]; then
-  mv target/linux/generic/kernel-6.18.bak target/linux/generic/kernel-6.18
-fi
-if [ -e target/linux/generic/config-6.18.bak ]; then
-  mv target/linux/generic/config-6.18.bak target/linux/generic/config-6.18
-fi
-
-echo -e "${GREEN}✅ [4/7] TurboAcc 集成完成（仅 6.12）${NC}"
+echo -e "${GREEN}✅ [4/7] TurboAcc 集成完成${NC}"
 
 # =========================================================
 # 5. 同步你的 sysctl 优化配置
