@@ -47,6 +47,12 @@ CONFIG_ENERGY_MODEL=y
 EOF
 ok "CPU_FREQ 相关配置注入成功"
 
+# 显式添加 UCLAMP_TASK 配置（避免后续编译时交互式询问）
+if ! grep -q "UCLAMP_TASK" "$KERN_CFG"; then
+    echo "# CONFIG_UCLAMP_TASK is not set" >> "$KERN_CFG"
+    ok "已添加 UCLAMP_TASK 配置"
+fi
+
 # 全局配置初始化
 info "执行 make defconfig ..."
 make defconfig > /dev/null 2>&1 || fail "make defconfig 失败"
@@ -195,20 +201,15 @@ make olddefconfig > /dev/null 2>&1 || warn "最终 olddefconfig 有警告"
 # 内核源码准备与固化
 info "准备内核源码并固化配置..."
 make target/linux/prepare > /dev/null 2>&1 || warn "内核准备有警告"
+
+# 使用 target/linux/oldconfig 确保内核配置正确同步
+make target/linux/oldconfig > /dev/null 2>&1 && ok "内核配置已同步" || warn "内核配置同步有警告"
+
+# 可选：再次在内核目录执行 olddefconfig 确保万无一失
 KERN_DIR=$(ls -d build_dir/target-*/linux-airoha_an7581/linux-*/ 2>/dev/null | head -n1)
-if [ -n "$KERN_DIR" ] && [ -d "$KERN_DIR" ]; then
-    ok "检测到内核构建目录：$KERN_DIR"
+if [ -n "$KERN_DIR" ]; then
+    info "在内核目录执行 olddefconfig..."
     make -C "$KERN_DIR" ARCH="arm64" olddefconfig V=0 > /dev/null 2>&1 && ok "内核 olddefconfig 成功" || warn "内核 olddefconfig 有警告"
-    # 回写差异到 config-6.12
-    if [ -x ./scripts/diffconfig.sh ] && [ -f .config.old ]; then
-        DIFF=$(./scripts/diffconfig.sh .config .config.old 2>/dev/null || true)
-        if [ -n "$DIFF" ]; then
-            echo "$DIFF" >> "$KERN_CFG"
-            ok "内核配置差异已回写到 $KERN_CFG"
-        fi
-    fi
-else
-    warn "未找到内核构建目录，跳过内核 olddefconfig（可能稍后自动生成）"
 fi
 
 echo -e "${GREEN}🎉 脚本执行完毕！所有配置已就绪，可以直接运行 make 编译。${NC}"
