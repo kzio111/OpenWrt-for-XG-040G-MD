@@ -17,7 +17,7 @@ trap 'echo -e "${RED}❌ 脚本执行出错，请检查上方的错误日志！$
 # =========================================================
 # 0. 内核配置注入
 # =========================================================
-echo -e "${BLUE}[0/6] 正在注入内核配置 (an7581/config-6.12)...${NC}"
+echo -e "${BLUE}[0/7] 正在注入内核配置 (an7581/config-6.12)...${NC}"
 KERN_CFG="target/linux/airoha/an7581/config-6.12"
 if [ ! -f "$KERN_CFG" ]; then
     fail "未找到目标内核配置文件：$KERN_CFG"
@@ -58,24 +58,24 @@ info "执行 make defconfig ..."
 make defconfig > /dev/null 2>&1 || fail "make defconfig 失败"
 info "执行 make olddefconfig（自动接受所有新选项默认值）..."
 make olddefconfig > /dev/null 2>&1 || warn "make olddefconfig 有警告"
-ok "[0/6] 内核配置注入完成"
+ok "[0/7] 内核配置注入完成"
 
 # =========================================================
 # 1. 环境准备
 # =========================================================
-echo -e "${BLUE}[1/6] 更新 Feeds 并清理 fwupd 冲突...${NC}"
+echo -e "${BLUE}[1/7] 更新 Feeds 并清理 fwupd 冲突...${NC}"
 if [ ! -f .config ] && [ -f "../config/xg-040g-md.config" ]; then
     cp -fv "../config/xg-040g-md.config" .config > /dev/null 2>&1 && ok "已复制种子配置文件" || fail "复制种子配置失败"
 fi
 ./scripts/feeds update -a > /dev/null 2>&1 || warn "feeds update 有警告"
 rm -rf feeds/packages/utils/fwupd && ok "fwupd 冲突目录已清理" || warn "fwupd 清理失败"
 ./scripts/feeds install -a > /dev/null 2>&1 || warn "feeds install 有警告"
-ok "[1/6] Feeds 更新与清理完成"
+ok "[1/7] Feeds 更新与清理完成"
 
 # =========================================================
 # 2. 提取 NPU 插件并修复 Makefile（使用 rchen14b 仓库）
 # =========================================================
-echo -e "${BLUE}[2/6] 提取 Airoha NPU 插件 (rchen14b)...${NC}"
+echo -e "${BLUE}[2/7] 提取 Airoha NPU 插件 (rchen14b)...${NC}"
 rm -rf package/luci-app-airoha-npu
 git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/luci-app-airoha-npu > /dev/null 2>&1 || fail "NPU 仓库克隆失败"
 
@@ -89,55 +89,51 @@ if [ -f "$MAKEFILE" ]; then
 else
     warn "未找到 Makefile，跳过修复"
 fi
-ok "[2/6] NPU 插件提取与修复完成"
+ok "[2/7] NPU 插件提取与修复完成"
 
 # =========================================================
 # 3. 提取 Aurora 主题
 # =========================================================
-echo -e "${BLUE}[3/6] 提取 Aurora 主题...${NC}"
+echo -e "${BLUE}[3/7] 提取 Aurora 主题...${NC}"
 rm -rf package/luci-theme-aurora
 git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora > /dev/null 2>&1 || fail "Aurora 主题克隆失败"
-ok "[3/6] Aurora 主题提取完成"
+ok "[3/7] Aurora 主题提取完成"
 
 # =========================================================
 # 3.5. 拉取 minieap
 # =========================================================
-echo -e "${BLUE}[3.5/6] 拉取 minieap...${NC}"
+echo -e "${BLUE}[3.5/7] 拉取 minieap...${NC}"
 rm -rf package/minieap
 git clone --depth=1 https://github.com/ysc3839/openwrt-minieap.git package/minieap > /dev/null 2>&1 || fail "minieap 仓库克隆失败"
-ok "[3.5/6] minieap 拉取完成"
+ok "[3.5/7] minieap 拉取完成"
 
 # =========================================================
 # 3.6. 拉取 luci-proto-minieap
 # =========================================================
-echo -e "${BLUE}[3.6/6] 拉取 luci-proto-minieap...${NC}"
+echo -e "${BLUE}[3.6/7] 拉取 luci-proto-minieap...${NC}"
 rm -rf package/luci-proto-minieap
 git clone --depth=1 https://github.com/ysc3839/luci-proto-minieap.git package/luci-proto-minieap > /dev/null 2>&1 || fail "luci-proto-minieap 仓库克隆失败"
-ok "[3.6/6] luci-proto-minieap 拉取完成"
+ok "[3.6/7] luci-proto-minieap 拉取完成"
 
 # =========================================================
-# 4. 集成 TurboAcc
+# 4. 集成 TurboAcc（暂时禁用，避免 6.12.80 的 952 补丁失败）
 # =========================================================
-echo -e "${BLUE}[4/6] 集成 TurboAcc...${NC}"
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
-sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
-bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || warn "TurboAcc 安装有警告"
-rm -f add_turboacc.sh
-ok "[4/6] TurboAcc 集成完成"
+echo -e "${BLUE}[4/7] 跳过 TurboAcc（当前 6.12 内核补丁不兼容）...${NC}"
+warn "已跳过 TurboAcc，避免 952 补丁导致 kernel-headers 编译失败"
 
 # =========================================================
 # 5. 系统优化配置
 # =========================================================
-echo -e "${BLUE}[5/6] 系统优化配置...${NC}"
+echo -e "${BLUE}[5/7] 系统优化配置...${NC}"
 mkdir -p files/etc/sysctl.d
 curl -fsSL "https://raw.githubusercontent.com/kzio111/OpenWrt-for-XG-040G-MD/main/files/etc/sysctl.d/sysctl-nf-conntrack.conf" \
   -o files/etc/sysctl.d/sysctl-nf-conntrack.conf || fail "sysctl 配置下载失败"
-ok "[5/6] 系统优化配置完成"
+ok "[5/7] 系统优化配置完成"
 
 # =========================================================
 # 6. 添加 MAC 固定脚本
 # =========================================================
-echo -e "${BLUE}[6/6] 添加 MAC 固定脚本...${NC}"
+echo -e "${BLUE}[6/7] 添加 MAC 固定脚本...${NC}"
 mkdir -p files/etc/init.d
 cat > files/etc/init.d/fix-mac <<'EOF'
 #!/bin/sh /etc/rc.common
@@ -161,7 +157,7 @@ boot() {
 }
 EOF
 chmod +x files/etc/init.d/fix-mac
-ok "[6/6] MAC 固定脚本添加完成"
+ok "[6/7] MAC 固定脚本添加完成"
 
 # =========================================================
 # 7. 配置锁定与最终同步（仅一次 defconfig + olddefconfig）
@@ -176,11 +172,10 @@ done
 ok "devmem 相关配置锁定"
 
 # 核心软件包锁定
-PKGS="luci-app-airoha-npu luci-app-turboacc luci-theme-aurora cpufrequtils \
+PKGS="luci-app-airoha-npu luci-theme-aurora cpufrequtils \
       zram-config luci-app-zram \
       natmap luci-app-natmap \
       miniupnpd luci-app-upnp \
-      kmod-nft-fullcone \
       minieap luci-proto-minieap"
 for pkg in $PKGS; do
     sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
