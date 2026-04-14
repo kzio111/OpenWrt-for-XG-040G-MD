@@ -8,7 +8,7 @@ YELLOW='\033[33m'
 NC='\033[0m'
 
 ok()   { echo -e "${GREEN}✅ $1${NC}"; }
-fail() { echo -e "${RED}❌ $1${NC}"; }
+fail() { echo -e "${RED}❌ $1${NC}"; exit 1; }
 warn() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 info() { echo -e "${BLUE}▶  $1${NC}"; }
 
@@ -21,16 +21,13 @@ echo -e "${BLUE}[0/7] 正在注入内核配置 (an7581/config-6.12)...${NC}"
 KERN_CFG="target/linux/airoha/an7581/config-6.12"
 if [ ! -f "$KERN_CFG" ]; then
     fail "未找到目标内核配置文件：$KERN_CFG"
-    exit 1
 fi
 ok "找到内核配置文件：$KERN_CFG"
 
-# 清除旧 CPU_FREQ 相关行
 sed -i '/CONFIG_CPU_FREQ/d' "$KERN_CFG"
 sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$KERN_CFG"
 ok "已清除旧的 CPU_FREQ 配置行"
 
-# 注入新的内核配置
 cat >> "$KERN_CFG" <<'EOF'
 CONFIG_CPU_FREQ=y
 CONFIG_CPU_FREQ_STAT=y
@@ -47,13 +44,11 @@ CONFIG_ENERGY_MODEL=y
 EOF
 ok "CPU_FREQ 相关配置注入成功"
 
-# 显式添加 UCLAMP_TASK 配置（避免后续编译时交互式询问）
 if ! grep -q "UCLAMP_TASK" "$KERN_CFG"; then
     echo "# CONFIG_UCLAMP_TASK is not set" >> "$KERN_CFG"
     ok "已添加 UCLAMP_TASK 配置"
 fi
 
-# 全局配置初始化（一次 defconfig + olddefconfig）
 info "执行 make defconfig ..."
 make defconfig > /dev/null 2>&1 || fail "make defconfig 失败"
 info "执行 make olddefconfig（自动接受所有新选项默认值）..."
@@ -65,15 +60,18 @@ ok "[0/7] 内核配置注入完成"
 # =========================================================
 echo -e "${BLUE}[1/7] 更新 Feeds 并清理 fwupd 冲突...${NC}"
 if [ ! -f .config ] && [ -f "../config/xg-040g-md.config" ]; then
-    cp -fv "../config/xg-040g-md.config" .config > /dev/null 2>&1 && ok "已复制种子配置文件" || fail "复制种子配置失败"
+    cp -fv "../config/xg-040g-md.config" .config > /dev/null 2>&1 \
+        && ok "已复制种子配置文件" \
+        || fail "复制种子配置失败"
 fi
+
 ./scripts/feeds update -a > /dev/null 2>&1 || warn "feeds update 有警告"
 rm -rf feeds/packages/utils/fwupd && ok "fwupd 冲突目录已清理" || warn "fwupd 清理失败"
 ./scripts/feeds install -a > /dev/null 2>&1 || warn "feeds install 有警告"
 ok "[1/7] Feeds 更新与清理完成"
 
 # =========================================================
-# 2. 提取 NPU 插件并修复 Makefile（使用 rchen14b 仓库）
+# 2. 提取 NPU 插件并修复 Makefile
 # =========================================================
 echo -e "${BLUE}[2/7] 提取 Airoha NPU 插件 (rchen14b)...${NC}"
 rm -rf package/luci-app-airoha-npu
@@ -81,9 +79,7 @@ git clone --depth=1 https://github.com/rchen14b/luci-app-airoha-npu.git package/
 
 MAKEFILE="package/luci-app-airoha-npu/Makefile"
 if [ -f "$MAKEFILE" ]; then
-    # 修复包含路径：指向 feeds 中的 luci.mk
     sed -i 's|include ../../luci.mk|include $(TOPDIR)/feeds/luci/luci.mk|' "$MAKEFILE"
-    # 修复依赖语法：@TARGET_airoha -> +TARGET_airoha:
     sed -i 's/@TARGET_airoha/+TARGET_airoha:/' "$MAKEFILE"
     ok "Makefile 已修复（包含路径和依赖语法）"
 else
@@ -100,7 +96,7 @@ git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luc
 ok "[3/7] Aurora 主题提取完成"
 
 # =========================================================
-# 3.5. 拉取 minieap
+# 3.5. 拉取 minieap 本体
 # =========================================================
 echo -e "${BLUE}[3.5/7] 拉取 minieap...${NC}"
 rm -rf package/minieap
@@ -108,18 +104,27 @@ git clone --depth=1 https://github.com/ysc3839/openwrt-minieap.git package/minie
 ok "[3.5/7] minieap 拉取完成"
 
 # =========================================================
-# 3.6. 拉取 luci-proto-minieap
+# 3.6. 拉取 luci-app-minieap
 # =========================================================
-echo -e "${BLUE}[3.6/7] 拉取 luci-proto-minieap...${NC}"
-rm -rf package/luci-proto-minieap
-git clone --depth=1 https://github.com/ysc3839/luci-proto-minieap.git package/luci-proto-minieap > /dev/null 2>&1 || fail "luci-proto-minieap 仓库克隆失败"
-ok "[3.6/7] luci-proto-minieap 拉取完成"
+echo -e "${BLUE}[3.6/7] 拉取 luci-app-minieap...${NC}"
+rm -rf package/luci-app-minieap
+git clone --depth=1 https://github.com/BoringCat/luci-app-minieap.git package/luci-app-minieap > /dev/null 2>&1 || fail "luci-app-minieap 仓库克隆失败"
+ok "[3.6/7] luci-app-minieap 拉取完成"
 
 # =========================================================
-# 4. 集成 TurboAcc（暂时禁用，避免 6.12.80 的 952 补丁失败）
+# 4. 集成 TurboAcc（补丁版）
 # =========================================================
-echo -e "${BLUE}[4/7] 跳过 TurboAcc（当前 6.12 内核补丁不兼容）...${NC}"
-warn "已跳过 TurboAcc，避免 952 补丁导致 kernel-headers 编译失败"
+echo -e "${BLUE}[4/7] 集成 TurboAcc（补丁版）...${NC}"
+curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
+
+# 允许脚本在识别不到你这个内核时继续跑，但补丁仍可能在后续 make 阶段失败
+sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
+
+# --no-sfe：不启用 shortcut-fe，但仍会打 952、替换 firewall4/libnftnl/nftables
+bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || fail "TurboAcc 安装失败"
+
+rm -f add_turboacc.sh
+ok "[4/7] TurboAcc 集成完成"
 
 # =========================================================
 # 5. 系统优化配置
@@ -160,35 +165,33 @@ chmod +x files/etc/init.d/fix-mac
 ok "[6/7] MAC 固定脚本添加完成"
 
 # =========================================================
-# 7. 配置锁定与最终同步（仅一次 defconfig + olddefconfig）
+# 7. 配置锁定与最终同步
 # =========================================================
 echo -e "${BLUE}[7/7] 锁定 .config 配置并最终同步...${NC}"
 
-# 强制开启 devmem
 for opt in BUSYBOX_CUSTOM BUSYBOX_CONFIG_DEVMEM KERNEL_DEVMEM; do
     sed -i "/CONFIG_${opt}/d" .config
     echo "CONFIG_${opt}=y" >> .config
 done
 ok "devmem 相关配置锁定"
 
-# 核心软件包锁定
 PKGS="luci-app-airoha-npu luci-theme-aurora cpufrequtils \
       zram-config luci-app-zram \
       natmap luci-app-natmap \
       miniupnpd luci-app-upnp \
-      minieap luci-proto-minieap"
+      minieap luci-app-minieap \
+      luci-app-turboacc kmod-nft-fullcone kmod-tcp-bbr"
+
 for pkg in $PKGS; do
     sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
     echo "CONFIG_PACKAGE_${pkg}=y" >> .config
 done
 ok "核心软件包锁定"
 
-# 锁定语言
 sed -i '/CONFIG_LUCI_LANG_zh_Hans/d' .config
 echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
 ok "中文语言包锁定"
 
-# uci-defaults 脚本
 mkdir -p files/etc/uci-defaults
 cat > files/etc/uci-defaults/99-custom-settings <<'EOF'
 #!/bin/sh
@@ -199,19 +202,26 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-custom-settings
 
-# 最终 feeds install
+mkdir -p files/etc/modules.d
+echo "tcp_bbr" > files/etc/modules.d/60-tcp_bbr
+
+mkdir -p files/etc/sysctl.d
+cat > files/etc/sysctl.d/99-bbr.conf <<'EOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+EOF
+
 ./scripts/feeds install -a > /dev/null 2>&1 || warn "最终 feeds install 有警告"
 
-# 最终配置同步（唯一一次 defconfig + olddefconfig）
 info "最终同步配置..."
 make defconfig > /dev/null 2>&1 || fail "最终 defconfig 失败"
 make olddefconfig > /dev/null 2>&1 || warn "最终 olddefconfig 有警告"
 
-# 可选：内核目录 olddefconfig 确保万无一失
 KERN_DIR=$(ls -d build_dir/target-*/linux-airoha_an7581/linux-*/ 2>/dev/null | head -n1)
 if [ -n "$KERN_DIR" ]; then
     info "在内核目录执行 olddefconfig..."
     make -C "$KERN_DIR" ARCH="arm64" olddefconfig V=0 > /dev/null 2>&1 && ok "内核 olddefconfig 成功" || warn "内核 olddefconfig 有警告"
 fi
 
-echo -e "${GREEN}🎉 脚本执行完毕！所有配置已就绪，可以直接运行 make 编译。${NC}"
+echo -e "${GREEN}🎉 脚本执行完毕！已包含：Aurora、Airoha NPU、Minieap、LuCI Minieap、TurboAcc（补丁版）、中文包。${NC}"
+echo -e "${YELLOW}注意：当前 TurboAcc 走的是补丁版接法；若再次报 952 补丁失败，说明与你当前 6.12.80 内核树不兼容。${NC}"
