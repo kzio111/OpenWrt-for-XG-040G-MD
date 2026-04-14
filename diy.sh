@@ -100,6 +100,22 @@ git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luc
 ok "[3/6] Aurora 主题提取完成"
 
 # =========================================================
+# 3.5. 拉取 minieap
+# =========================================================
+echo -e "${BLUE}[3.5/6] 拉取 minieap...${NC}"
+rm -rf package/minieap
+git clone --depth=1 https://github.com/ysc3839/openwrt-minieap.git package/minieap > /dev/null 2>&1 || fail "minieap 仓库克隆失败"
+ok "[3.5/6] minieap 拉取完成"
+
+# =========================================================
+# 3.6. 拉取 luci-proto-minieap
+# =========================================================
+echo -e "${BLUE}[3.6/6] 拉取 luci-proto-minieap...${NC}"
+rm -rf package/luci-proto-minieap
+git clone --depth=1 https://github.com/ysc3839/luci-proto-minieap.git package/luci-proto-minieap > /dev/null 2>&1 || fail "luci-proto-minieap 仓库克隆失败"
+ok "[3.6/6] luci-proto-minieap 拉取完成"
+
+# =========================================================
 # 4. 集成 TurboAcc
 # =========================================================
 echo -e "${BLUE}[4/6] 集成 TurboAcc...${NC}"
@@ -164,7 +180,8 @@ PKGS="luci-app-airoha-npu luci-app-turboacc luci-theme-aurora cpufrequtils \
       zram-config luci-app-zram \
       natmap luci-app-natmap \
       miniupnpd luci-app-upnp \
-      kmod-nft-fullcone"
+      kmod-nft-fullcone \
+      minieap luci-proto-minieap"
 for pkg in $PKGS; do
     sed -i "/CONFIG_PACKAGE_${pkg}/d" .config
     echo "CONFIG_PACKAGE_${pkg}=y" >> .config
@@ -172,6 +189,7 @@ done
 ok "核心软件包锁定"
 
 # 锁定语言
+sed -i '/CONFIG_LUCI_LANG_zh_Hans/d' .config
 echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
 ok "中文语言包锁定"
 
