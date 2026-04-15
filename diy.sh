@@ -49,9 +49,9 @@ if ! grep -q "UCLAMP_TASK" "$KERN_CFG"; then
     ok "已添加 UCLAMP_TASK 配置"
 fi
 
-info "执行 make defconfig ..."
+info "执行 make defconfig ... "
 make defconfig > /dev/null 2>&1 || fail "make defconfig 失败"
-info "执行 make olddefconfig（自动接受所有新选项默认值）..."
+info "执行 make olddefconfig（自动接受所有新选项默认值）... "
 make olddefconfig > /dev/null 2>&1 || warn "make olddefconfig 有警告"
 ok "[0/7] 内核配置注入完成"
 
