@@ -63,19 +63,27 @@ jobs:
 
       - name: Clone ImmortalWrt source code and apply XG-040G-MD patch files
         run: |
+          # 克隆 ImmortalWrt 仓库
           git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" openwrt
           cd patch
           
-          # 拉取本地补丁仓库（从你的仓库拉取补丁和 DTS）
+          # 拉取 Cairongzeng 的补丁仓库
+          git clone --depth 1 https://github.com/Cairongzeng/openwrt.git cairongzeng_patches
+
+          # 复制 Cairongzeng 的补丁到正确的目录
+          cp -fv cairongzeng_patches/patches-6.12/* openwrt/target/linux/airoha/patches-6.12/
+          cp -fv cairongzeng_patches/patches-6.12/* openwrt/target/linux/generic/patches-6.12/
+
+          # 拉取你自己仓库的补丁
           git clone --depth=1 https://github.com/kzio111/OpenWrt-for-XG-040G-MD patch_local
 
-          # 复制补丁和 DTS 文件
+          # 复制你自己仓库中的补丁，覆盖 Cairongzeng 的重复补丁
           cp -fv patch_local/patch/01_leds openwrt/target/linux/airoha/an7581/base-files/etc/board.d/01_leds
           cp -fv patch_local/patch/02_network openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
-          cp -fv patch_local/patch/an7581*.dts openwrt/target/linux/airoha/dts/
           cp -fv patch_local/patch/an7581.mk openwrt/target/linux/airoha/image/
-          
-          # 复制所有补丁到正确的目录
+          cp -fv patch_local/patch/an7581*.dts openwrt/target/linux/airoha/dts/
+
+          # 复制其他补丁
           cp -fv patch_local/patch/*patch openwrt/target/linux/airoha/patches-6.12/
           cp -fv patch_local/patch/*patch openwrt/target/linux/generic/patches-6.12/
 
