@@ -26,7 +26,6 @@ ok "找到内核配置文件：$KERN_CFG"
 
 sed -i '/CONFIG_CPU_FREQ/d' "$KERN_CFG"
 sed -i '/CONFIG_ARM_AIROHA_CPUFREQ/d' "$KERN_CFG"
-ok "已清除旧的 CPU_FREQ 配置行"
 
 cat >> "$KERN_CFG" <<'EOF'
 CONFIG_CPU_FREQ=y
@@ -49,9 +48,9 @@ if ! grep -q "UCLAMP_TASK" "$KERN_CFG"; then
     ok "已添加 UCLAMP_TASK 配置"
 fi
 
-info "执行 make defconfig ... "
+info "执行 make defconfig ..."
 make defconfig > /dev/null 2>&1 || fail "make defconfig 失败"
-info "执行 make olddefconfig（自动接受所有新选项默认值）... "
+info "执行 make olddefconfig ..."
 make olddefconfig > /dev/null 2>&1 || warn "make olddefconfig 有警告"
 ok "[0/7] 内核配置注入完成"
 
@@ -71,7 +70,7 @@ rm -rf feeds/packages/utils/fwupd && ok "fwupd 冲突目录已清理" || warn "f
 ok "[1/7] Feeds 更新与清理完成"
 
 # =========================================================
-# 2. 提取 NPU 插件并修复 Makefile
+# 2. 提取 Airoha NPU 插件并修复 Makefile
 # =========================================================
 echo -e "${BLUE}[2/7] 提取 Airoha NPU 插件 (rchen14b)...${NC}"
 rm -rf package/luci-app-airoha-npu
@@ -81,9 +80,9 @@ MAKEFILE="package/luci-app-airoha-npu/Makefile"
 if [ -f "$MAKEFILE" ]; then
     sed -i 's|include ../../luci.mk|include $(TOPDIR)/feeds/luci/luci.mk|' "$MAKEFILE"
     sed -i 's/@TARGET_airoha/+TARGET_airoha:/' "$MAKEFILE"
-    ok "Makefile 已修复（包含路径和依赖语法）"
+    ok "NPU Makefile 已修复"
 else
-    warn "未找到 Makefile，跳过修复"
+    warn "未找到 NPU Makefile，跳过修复"
 fi
 ok "[2/7] NPU 插件提取与修复完成"
 
@@ -96,22 +95,25 @@ git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luc
 ok "[3/7] Aurora 主题提取完成"
 
 # =========================================================
-# 3.5. 拉取 minieap 本体
+# 3.5. 拉取 smart-srun
 # =========================================================
-echo -e "${BLUE}[3.5/7] 拉取 minieap...${NC}"
-rm -rf package/minieap
-git clone --depth=1 https://github.com/ysc3839/openwrt-minieap.git package/minieap > /dev/null 2>&1 || fail "minieap 仓库克隆失败"
-ok "[3.5/7] minieap 拉取完成"
+echo -e "${BLUE}[3.5/7] 拉取 smart-srun...${NC}"
+rm -rf package/smart-srun
+git clone --depth=1 https://github.com/matthewlu070111/smart-srun.git package/smart-srun > /dev/null 2>&1 || fail "smart-srun 仓库克隆失败"
+ok "[3.5/7] smart-srun 拉取完成"
 
 # =========================================================
-# 3.6. 拉取 luci-app-minieap
+# 4. 集成 TurboAcc（补丁版）
 # =========================================================
-echo -e "${BLUE}[3.6/7] 拉取 luci-app-minieap...${NC}"
-rm -rf package/luci-app-minieap
-git clone --depth=1 https://github.com/BoringCat/luci-app-minieap.git package/luci-app-minieap > /dev/null 2>&1 || fail "luci-app-minieap 仓库克隆失败"
-ok "[3.6/7] luci-app-minieap 拉取完成"
+echo -e "${BLUE}[4/7] 集成 TurboAcc（补丁版）...${NC}"
+curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
 
+sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
 
+bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || fail "TurboAcc 安装失败"
+
+rm -f add_turboacc.sh
+ok "[4/7] TurboAcc 集成完成"
 
 # =========================================================
 # 5. 系统优化配置
@@ -166,7 +168,7 @@ PKGS="luci-app-airoha-npu luci-theme-aurora cpufrequtils \
       zram-config luci-app-zram \
       natmap luci-app-natmap \
       miniupnpd luci-app-upnp \
-      minieap luci-app-minieap \
+      smart-srun luci-app-smart-srun \
       luci-app-turboacc kmod-nft-fullcone kmod-tcp-bbr"
 
 for pkg in $PKGS; do
@@ -210,5 +212,5 @@ if [ -n "$KERN_DIR" ]; then
     make -C "$KERN_DIR" ARCH="arm64" olddefconfig V=0 > /dev/null 2>&1 && ok "内核 olddefconfig 成功" || warn "内核 olddefconfig 有警告"
 fi
 
-echo -e "${GREEN}🎉 脚本执行完毕！已包含：Aurora、Airoha NPU、Minieap、LuCI Minieap、TurboAcc（补丁版）、中文包。${NC}"
-echo -e "${YELLOW}注意：当前 TurboAcc 走的是补丁版接法；若再次报 952 补丁失败，说明与你当前 6.12.80 内核树不兼容。${NC}"
+echo -e "${GREEN}🎉 脚本执行完毕！已包含：Aurora、Airoha NPU、smart-srun、LuCI smart-srun、TurboAcc、中文包。${NC}"
+echo -e "${YELLOW}注意：若再次报 952 补丁失败，说明当前 TurboAcc 补丁仍与你的内核树不兼容。${NC}"
