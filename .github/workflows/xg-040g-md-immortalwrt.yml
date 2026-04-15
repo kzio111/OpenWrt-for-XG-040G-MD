@@ -70,7 +70,12 @@ jobs:
           # 拉取 Cairongzeng 的补丁仓库
           git clone --depth 1 https://github.com/Cairongzeng/openwrt.git cairongzeng_patches
 
-          # 复制 Cairongzeng 的 patch
+          # 创建目标目录（如果不存在）
+          mkdir -p openwrt/target/linux/airoha/patches-6.12
+          mkdir -p openwrt/target/linux/generic/patches-6.12
+          mkdir -p openwrt/target/linux/mediatek/patches-6.12
+
+          # 复制 Cairongzeng 的补丁
           cp -fv cairongzeng_patches/target/linux/airoha/patches-6.12/* openwrt/target/linux/airoha/patches-6.12/
           cp -fv cairongzeng_patches/target/linux/generic/pending-6.12/* openwrt/target/linux/generic/pending-6.12/
           cp -fv cairongzeng_patches/target/linux/mediatek/patches-6.12/* openwrt/target/linux/mediatek/patches-6.12/
