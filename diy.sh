@@ -111,20 +111,7 @@ rm -rf package/luci-app-minieap
 git clone --depth=1 https://github.com/BoringCat/luci-app-minieap.git package/luci-app-minieap > /dev/null 2>&1 || fail "luci-app-minieap 仓库克隆失败"
 ok "[3.6/7] luci-app-minieap 拉取完成"
 
-# =========================================================
-# 4. 集成 TurboAcc（补丁版）
-# =========================================================
-echo -e "${BLUE}[4/7] 集成 TurboAcc（补丁版）...${NC}"
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
 
-# 允许脚本在识别不到你这个内核时继续跑，但补丁仍可能在后续 make 阶段失败
-sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
-
-# --no-sfe：不启用 shortcut-fe，但仍会打 952、替换 firewall4/libnftnl/nftables
-bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || fail "TurboAcc 安装失败"
-
-rm -f add_turboacc.sh
-ok "[4/7] TurboAcc 集成完成"
 
 # =========================================================
 # 5. 系统优化配置
