@@ -7,10 +7,9 @@ permissions:
   contents: write
 
 env:
-  CONFIG_FILE: "config/xg-040g-md.config"
+  CONFIG_FILE: config/xg-040g-md.config
   REPO_URL: https://github.com/xiangtailiang/openwrt.git
   REPO_BRANCH: openwrt-25.12
-  FEEDS_CONF: feeds.conf.default
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   KEEP_RELEASES: 20
@@ -24,10 +23,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: 检出当前仓库
         uses: actions/checkout@v4
 
-      - name: Initialization environment
+      - name: 初始化编译环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -44,99 +43,153 @@ jobs:
             unzip vim wget xmlto xxd zlib1g-dev zstd
 
           sudo timedatectl set-timezone "$TZ"
-          sudo mkdir -p /mnt/openwrt/ccache
-          sudo chown -R $USER:$USER /mnt/openwrt/ccache
+          sudo mkdir -p "$CCACHE_DIR"
+          sudo chown -R "$USER:$USER" "$CCACHE_DIR"
 
-      - name: Clone source code
+      - name: 拉取 OpenWrt 源码
         run: |
           git clone --depth 1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
 
-      - name: Update feeds
+      - name: 更新并安装 feeds
         working-directory: ./openwrt
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Load custom files
+      - name: 加载自定义文件
         run: |
-          # 复制你的配置
+          set -e
+
+          # 复制配置
           cp "$CONFIG_FILE" openwrt/.config
 
-          # 如果你仓库里有自定义 files 目录
+          # 自定义 files
           if [ -d files ]; then
+            echo "发现 files 目录，开始复制"
             cp -rf files openwrt/
           fi
 
-          # 如果你仓库里有自定义 package 目录
+          # 自定义 package
           if [ -d package ]; then
-            cp -rf package/* openwrt/package/ || true
+            echo "发现 package 目录，开始复制"
+            mkdir -p openwrt/package
+            cp -rf package/* openwrt/package/
           fi
 
-          # 如果你仓库里有自定义 patch 目录
+          # 自定义 patch 覆盖到源码树
           if [ -d patch ]; then
-            find patch -type f | while read f; do
+            echo "发现 patch 目录，开始覆盖源码"
+            find patch -type f | while read -r f; do
               rel="${f#patch/}"
               dst="openwrt/$rel"
               mkdir -p "$(dirname "$dst")"
               cp -f "$f" "$dst"
+              echo "已覆盖: $rel"
             done
           fi
 
-      - name: Fix missing w1700k-ubi DTS build error
+      - name: 修复 w1700k-ubi DTS 构建问题
         working-directory: ./openwrt
         run: |
           set -e
 
-          echo "Checking airoha image Makefile..."
+          echo "处理前检查："
           grep -n "w1700k-ubi\|an7581-w1700k-ubi" target/linux/airoha/image/Makefile || true
 
-          # 删除 define Device/w1700k-ubi ... endef 整块
           sed -i '/^define Device\/w1700k-ubi$/,/^endef$/d' target/linux/airoha/image/Makefile
-
-          # 删除 TARGET_DEVICES += w1700k-ubi
           sed -i '/^TARGET_DEVICES += w1700k-ubi$/d' target/linux/airoha/image/Makefile
 
-          echo "After patch:"
+          echo "处理后检查："
           grep -n "w1700k-ubi\|an7581-w1700k-ubi" target/linux/airoha/image/Makefile || true
 
-          # 防止 target info 缓存旧内容
           rm -f tmp/.targetinfo
           rm -f tmp/.packageinfo
 
-      - name: Defconfig
+      - name: 检查 XG-040G-MD 设备定义是否存在
         working-directory: ./openwrt
         run: |
+          set -e
+
+          echo "检查源码里是否存在 XG-040G-MD 相关定义..."
+          find target/linux/airoha -type f | grep -Ei 'xg-040g-md|nokia' || true
+          grep -RIn "nokia_xg-040g-md\|XG-040G-MD" target/linux/airoha || true
+
+          grep -RIn "^define Device/nokia_xg-040g-md$" target/linux/airoha/image || {
+            echo "错误：没有找到 define Device/nokia_xg-040g-md"
+            exit 1
+          }
+
+      - name: 生成默认配置并检查目标设备
+        working-directory: ./openwrt
+        run: |
+          set -e
+
           make defconfig
 
-      - name: Download package sources
+          echo "最终 .config 目标项："
+          grep -E 'CONFIG_TARGET_airoha|CONFIG_TARGET_DEVICE|xg-040g-md|evb' .config || true
+
+          grep -q '^CONFIG_TARGET_airoha=y$' .config || {
+            echo "错误：CONFIG_TARGET_airoha 未启用"
+            exit 1
+          }
+
+          grep -q '^CONFIG_TARGET_airoha_an7581=y$' .config || {
+            echo "错误：CONFIG_TARGET_airoha_an7581 未启用"
+            exit 1
+          }
+
+          grep -q '^CONFIG_TARGET_airoha_an7581_DEVICE_nokia_xg-040g-md=y$' .config || {
+            echo "错误：最终 .config 没有选中 nokia_xg-040g-md"
+            exit 1
+          }
+
+      - name: 下载软件包源码
         working-directory: ./openwrt
         run: |
-          make download -j$(nproc) V=s
+          make download -j"$(nproc)" V=s
 
-      - name: Build firmware
+      - name: 编译固件
         working-directory: ./openwrt
         run: |
-          make -j$(nproc) V=s
+          make -j"$(nproc)" V=s
 
-      - name: Upload firmware
+      - name: 整理可发布文件
+        run: |
+          set -e
+          mkdir -p upload
+
+          find openwrt/bin/targets -type f \( \
+            -name "*sysupgrade*.bin" -o \
+            -name "*factory*.bin" -o \
+            -name "*initramfs*.itb" -o \
+            -name "*.fip" -o \
+            -name "*preloader*.bin" -o \
+            -name "*.manifest" \
+          \) -exec cp -f {} upload/ \;
+
+          echo "本次将上传这些文件："
+          ls -lh upload
+
+          test -n "$(ls -A upload)" || {
+            echo "错误：没有找到可上传的固件文件"
+            exit 1
+          }
+
+      - name: 上传固件附件
         if: env.UPLOAD_FIRMWARE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt_firmware_XG-040G-MD
-          path: |
-            openwrt/bin/targets/**/*
-            !openwrt/bin/targets/**/*.buildinfo
-            !openwrt/bin/targets/**/*.json
-            !openwrt/bin/targets/**/*.manifest
-            !openwrt/bin/targets/**/*.packages
+          path: upload/*
 
-      - name: Generate release tag
+      - name: 生成发布标签
         id: tag
         if: env.UPLOAD_RELEASE == 'true'
         run: |
-          echo "release_tag=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+          echo "release_tag=$(date +'%Y.%m.%d-%H%M')" >> "$GITHUB_OUTPUT"
 
-      - name: Remove old releases
+      - name: 删除旧发布
         if: env.UPLOAD_RELEASE == 'true'
         uses: dev-drprasad/delete-older-releases@v0.3.4
         with:
@@ -145,13 +198,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload release
+      - name: 发布到 Release
         if: env.UPLOAD_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          files: |
-            openwrt/bin/targets/**/*
+          files: upload/*
           body: |
             ${{ env.KEEP_RELEASE_MARKER }}
             Auto build for XG-040G-MD
