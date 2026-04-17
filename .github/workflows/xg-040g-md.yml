@@ -20,11 +20,15 @@ on:
 
 env:
   CONFIG_FILE: "config/xg-040g-md.config"
-  REPO_URL: https://github.com/Cairongzeng/openwrt.git
-  REPO_BRANCH: xg040gmd
-  FEEDS_CONF: feeds.conf.default-main
+  REPO_URL: https://github.com/xiangtailiang/openwrt.git
+  REPO_BRANCH: openwrt-25.12
+  FEEDS_CONF: feeds.conf.default
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
+  KEEP_RELEASES: 20
+  KEEP_RELEASE_MARKER: "[keep-release]"
+  CCACHE_DIR: /mnt/openwrt/ccache
+  CCACHE_MAXSIZE: 5G
   TZ: Asia/Shanghai
 
 jobs:
