@@ -23,6 +23,7 @@ on:
       - "files/**"
       - "package/**"
       - "patch/**"
+      - "diy.sh"
 
 env:
   CONFIG_FILE: "config/xg-040g-md.config"
@@ -69,11 +70,13 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
             python3-setuptools rsync swig unzip zlib1g-dev file wget curl \
             mkbootimg device-tree-compiler ccache patch xxd
+
           if command -v mkbootimg >/dev/null 2>&1; then
             echo "mkbootimg found at: $(command -v mkbootimg)"
           else
             echo "mkbootimg not found in PATH"
           fi
+
           if [[ -n "$TZ" ]]; then
             sudo timedatectl set-timezone "$TZ"
           fi
@@ -115,9 +118,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: /mnt/openwrt/ccache
-          key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v3-${{ github.run_id }}
+          key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v4-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v3-
+            ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v4-
 
       - name: 配置 ccache
         run: |
@@ -132,7 +135,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a -f
 
-      - name: 安装第三方软件包
+      - name: 安装第三方软件包脚本
         working-directory: ./openwrt/package
         run: |
           if [ -f "$GITHUB_WORKSPACE/scripts/update-packages.sh" ]; then
@@ -168,26 +171,23 @@ jobs:
             done
           fi
 
+      - name: 执行 diy.sh
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/diy.sh" ]; then
+            echo "发现 diy.sh，开始执行"
+            chmod +x "$GITHUB_WORKSPACE/diy.sh"
+            cd openwrt
+            bash "$GITHUB_WORKSPACE/diy.sh"
+          else
+            echo "未发现 diy.sh，跳过"
+          fi
+
       - name: Rust LLVM 热修复
         working-directory: ./openwrt
         run: |
           sed -i 's/--set=llvm.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' \
             feeds/packages/lang/rust/Makefile || true
           grep -n "download-ci-llvm" feeds/packages/lang/rust/Makefile || true
-
-      - name: 修复 w1700k-ubi DTS 构建问题
-        working-directory: ./openwrt
-        run: |
-          set -e
-          if [ -f target/linux/airoha/image/Makefile ]; then
-            echo "处理前检查："
-            grep -n "w1700k-ubi\|an7581-w1700k-ubi" target/linux/airoha/image/Makefile || true
-            sed -i '/^define Device\/w1700k-ubi$/,/^endef$/d' target/linux/airoha/image/Makefile
-            sed -i '/^TARGET_DEVICES += w1700k-ubi$/d' target/linux/airoha/image/Makefile
-            echo "处理后检查："
-            grep -n "w1700k-ubi\|an7581-w1700k-ubi" target/linux/airoha/image/Makefile || true
-          fi
-          rm -f tmp/.targetinfo tmp/.packageinfo
 
       - name: 检查源码里是否存在 XG-040G-MD 相关定义
         working-directory: ./openwrt
@@ -281,7 +281,7 @@ jobs:
         if: always()
         with:
           path: /mnt/openwrt/ccache
-          key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v3-${{ github.run_id }}
+          key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-ccache-v4-${{ github.run_id }}
 
       - name: 整理发布文件
         if: env.UPLOAD_FIRMWARE == 'true'
