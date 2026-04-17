@@ -94,26 +94,20 @@ rm -rf package/luci-theme-aurora
 git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora > /dev/null 2>&1 || fail "Aurora 主题克隆失败"
 ok "[3/7] Aurora 主题提取完成"
 
-# =========================================================
-# 3.5. 拉取 smart-srun
-# =========================================================
-echo -e "${BLUE}[3.5/7] 拉取 smart-srun...${NC}"
-rm -rf package/smart-srun
-git clone --depth=1 https://github.com/matthewlu070111/smart-srun.git package/smart-srun > /dev/null 2>&1 || fail "smart-srun 仓库克隆失败"
-ok "[3.5/7] smart-srun 拉取完成"
+
 
 # =========================================================
 # 4. 集成 TurboAcc（补丁版）
 # =========================================================
-echo -e "${BLUE}[4/7] 集成 TurboAcc（补丁版）...${NC}"
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
+#echo -e "${BLUE}[4/7] 集成 TurboAcc（补丁版）...${NC}"
+#curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh || fail "TurboAcc 脚本下载失败"
 
-sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
+#sed -i '/Unsupported kernel version/{n;s/exit 1/continue/}' add_turboacc.sh
 
-bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || fail "TurboAcc 安装失败"
+#bash add_turboacc.sh --no-sfe > /dev/null 2>&1 || fail "TurboAcc 安装失败"
 
-rm -f add_turboacc.sh
-ok "[4/7] TurboAcc 集成完成"
+#rm -f add_turboacc.sh
+#ok "[4/7] TurboAcc 集成完成"
 
 # =========================================================
 # 5. 系统优化配置
